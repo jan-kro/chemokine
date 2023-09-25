@@ -11,9 +11,9 @@ python run.py
 # Conda Environment
 The file ```conda-spec-file-chemokine.txt``` contains all information to create a new conda environment, containing all the packages needed to run the code.
 
-Make sure you are in the curren folder
+Make sure you are in the directory of the spec file
 ```console
-(base) user:/path/to/chemokine$
+> (base) user:/path/to/chemokine$
 ```
 
 The command 
@@ -40,7 +40,7 @@ conda config --append envs_dirs /path/to/env
 If you activate the enviroment it will look like this:
 
 ```console
-> (base) user:/path/to/cwd/$ conda activate env-name
+> (base) user:/path/to/cwd$ conda activate env-name
 > (/path/to/env/env-name) user:/path/to/cwd$ 
 ```
 
