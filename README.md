@@ -1,6 +1,6 @@
 
 # Chemokine
-Monte Carlo simulation of diffusing chemokine, netrin and heparansulfates with possibility to build chemokine-netrin and chempkine-heparansulfate complexes. The chemokine-netrin complex additionally binds to a collagene fiber, that spans the whole simulation box.
+Monte Carlo simulation of diffusing chemokine, netrin and heparansulfates with possibility to build chemokine-netrin and chemokine-heparansulfate complexes. The chemokine-netrin complex additionally binds to a collagene fiber, that spans the whole simulation box.
 
 The simulation is run by specifying the simulation parameters in the ```run.py``` file and then running the skript
 
@@ -22,7 +22,7 @@ The command
 conda create -n chemokine --file conda-spec-file-chemokine.txt
 ```
 
-creates a new environment in your ``` /path/to/conda/envs``` directory
+creates a new conda environment in your ``` /path/to/conda/envs``` directory called ```chemokine```.
 
 If you want to save the environment at another location , use 
 
@@ -31,7 +31,7 @@ mkdir /path/to/env/env-name
 conda create --prefix /path/to/env/env-name --file conda-spec-file-chemokine.txt
 ```
 
-For this you need to change your conda config to contain the path to the environments
+For this you need to change your conda config to contain the path to the new environment
 
 ```console
 conda config --append envs_dirs /path/to/env
@@ -40,13 +40,14 @@ conda config --append envs_dirs /path/to/env
 If you activate the enviroment it will look like this:
 
 ```console
-(/path/to/env/env_name) user:/path/to/cwd$ 
+> (base) user:/path/to/cwd/$ conda activate env-name
+> (/path/to/env/env-name) user:/path/to/cwd$ 
 ```
 
 If you want to change this to 
 
 ```console
-(env_name) user:path/to/cwd$
+> (env-name) user:/path/to/cwd$
 ```
 
 paste the following command in the command line:
