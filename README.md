@@ -2,7 +2,7 @@
 # Chemokine
 Monte Carlo simulation of diffusing chemokine, netrin and heparansulfates with possibility to build chemokine-netrin and chempkine-heparansulfate complexes. The chemokine-netrin complex additionally binds to a collagene fiber, that spans the whole simulation box.
 
-The simulation is run by specifying the simulation parameters in the ```run.py``` file and the running the file
+The simulation is run by specifying the simulation parameters in the ```run.py``` file and then running the skript
 
 ```console
 python run.py
@@ -27,6 +27,7 @@ creates a new environment in your ``` /path/to/conda/envs``` directory
 If you want to save the environment at another location , use 
 
 ```console
+mkdir /path/to/env/env-name
 conda create --prefix /path/to/env/env-name --file conda-spec-file-chemokine.txt
 ```
 
