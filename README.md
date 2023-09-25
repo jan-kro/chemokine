@@ -51,7 +51,7 @@ If you want to change this to
 paste the following command in the command line:
 
 ```console
-$ conda config --set env_prompt '({name})'
+conda config --set env_prompt '({name})'
 ```
 
 
