@@ -5,7 +5,7 @@ Monte Carlo simulation of diffusing chemokine, netrin and heparansulfates with p
 The simulation is run by specifying the simulation parameters in the ```run.py``` file and the running the file
 
 ```console
-$ python run.py
+python run.py
 ```
 
 # Conda Environment
@@ -19,7 +19,7 @@ Make sure you are in the curren folder
 The command 
 
 ```console
-$ conda create -n chemokine --file conda-spec-file-chemokine.txt
+conda create -n chemokine --file conda-spec-file-chemokine.txt
 ```
 
 creates a new environment in your ``` /path/to/conda/envs``` directory
@@ -27,13 +27,13 @@ creates a new environment in your ``` /path/to/conda/envs``` directory
 If you want to save the environment at another location , use 
 
 ```console
-$ conda create --prefix /path/to/env/env-name --file conda-spec-file-chemokine.txt
+conda create --prefix /path/to/env/env-name --file conda-spec-file-chemokine.txt
 ```
 
 For this you need to change your conda config to contain the path to the environments
 
 ```console
-$ conda config --append envs_dirs /path/to/env
+conda config --append envs_dirs /path/to/env
 ```
 
 If you activate the enviroment it will look like this:
