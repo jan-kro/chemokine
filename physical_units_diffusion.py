@@ -13,10 +13,24 @@ def calc_time_step_ratio(energy_matrix, diffusivity_array):
     return ratio
 
 # function that takes  thye ratio of time step to grid constant squared Delta/a^2 in [s/m^2] and a diffusivity in [m^2/s] and returns the probability of a particle to move in one direction and the probability to stay in the same position
-def calc_probabilities(ratio, diffusivity_array):
+def calc_probabilities_free(ratio, diffusivity_array):
     p_move = diffusivity_array * ratio * 1.25
     p_stay = 1 - 4 * p_move
     return p_move, p_stay
+
+# function computes moving probability in one direction with a neighbor present in this direction
+def calc_probabilities_with_neighbor(energy_matrix, diffusivity_array):
+    ratio = calc_time_step_ratio(energy_matrix, diffusivity_array)
+    p_move_free = calc_probabilities_free(ratio, diffusivity_array)[0]
+    p_move_neighbor = np.zeros(len(energy_matrix) * (len(energy_matrix) - 1) / 2)
+    # one could make a matrix in the shape of energy_matrix, but i+j-1 is also unique
+    for i in range(len(energy_matrix)):
+        for j in range(i + 1, len(energy_matrix)):
+            p_move_neighbor[i + j - 1] = p_move_free[i] * np.exp(energy_matrix[i, j])
+            # print(i + j - 1)
+    return p_move_neighbor
+
+
 
 # function taking concentrations of particle species in [mol/l], wanted number of rarest species and ratio Delta/a^2 in [s/m^2] and outputs the grid constant a in [m], the time step in [s] and the number of all species
 def calc_nspecies_gridconst(ratio, concentrations, n_min, grid_dim):
