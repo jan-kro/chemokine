@@ -12,7 +12,7 @@ def calc_time_step_ratio(energy_matrix, diffusivity_array):
     ratio = 1 / (5 * max_dexp)
     return ratio
 
-# function that takes  thye ratio of time step to grid constant squared Delta/a^2 in [s/m^2] and a diffusivity in [m^2/s] and returns the probability of a particle to move in one direction and the probability to stay in the same position
+# function that takes the ratio of time step to grid constant squared Delta/a^2 in [s/m^2] and a diffusivity in [m^2/s] and returns the probability of a particle to move in one direction and the probability to stay in the same position
 def calc_probabilities(ratio, diffusivity_array):
     p_move = diffusivity_array * ratio * 1.25
     p_stay = 1 - 4 * p_move
