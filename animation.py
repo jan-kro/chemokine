@@ -18,7 +18,7 @@ def animate(trajectory:                    np.ndarray,
     ----------
     traj : np.ndarray
         Trajectory of the particles of shape (n_steps, L_x, L_y).
-    show : bool, optional
+    show : bool, optional 
         Show the animation, by default True
     save : bool, optional
         Save the animation, by default False
@@ -51,8 +51,8 @@ def animate(trajectory:                    np.ndarray,
         ax.scatter(*np.where(trajectory[i] == 2), label="Netrin",                   color="red",    marker=r"--$\cdot$", s=250*marker_scale)
         ax.scatter(*np.where(trajectory[i] == 4), label="Chemokine-Netrin",         color="green",                       s=90*marker_scale)
         ax.scatter(*np.where(trajectory[i] == 6), label="Collagen Sites",           color="k",      marker="x",          s=90*marker_scale)
-        ax.scatter(*np.where(trajectory[i] == 7), label="CN Collagen Sites",           color="k",      marker="x",          s=90*marker_scale)
-        ax.scatter(*np.where(trajectory[i] == 8), label="N Collagen Sites",           color="k",      marker="x",          s=90*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 7), label="CN Collagen Sites",           color="k",      marker="o",          s=90*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 8), label="N Collagen Sites",           color="k",      marker="*",          s=90*marker_scale)
         
 
         ax.set_xlim(-plot_edge, grid_size[0]+plot_edge)    

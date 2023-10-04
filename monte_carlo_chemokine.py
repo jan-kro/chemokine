@@ -1,7 +1,9 @@
+import os
+import h5py
 import numpy as np
+from datetime import datetime
 from numba import njit
 from tqdm import tqdm
-
 
 """
 GENERAL IDEA
@@ -38,11 +40,11 @@ def _get_transition_prob(pos, i, j, transition_prob, diffusion_probability, bind
     transition_prob : np.ndarray
         1d array of len=5 to store the transition probabilities in the following order: [+x -x +y -y stay]
     diffusion_probability : list
-        list of floats with len=7 determining the diffusivity of the particle in x and y direction
+        list of floats with len=9 determining the diffusivity of the particle in x and y direction
         the first and last entry are 0, because the empty grid points and the collagen interaction sites are not moving
         the sum of the entries must be 1
     binding_probability : ndarray
-        2d array of floats with shape (7,7) determining the probability of binding beween the different particle types
+        2d array of floats with shape (9,9) determining the probability of binding beween the different particle types
         example: bp[1, 2] is the probability, that particle type 1 binds to particle type 2
         the first row and column are 1, because every particle binds to an empty grid point
         the final tranision probability is the product of the diffusion probability and the binding probability
@@ -104,7 +106,7 @@ def _get_unbonding_prob(pos, idx_x, idx_y, tag_move, tag_stay, neighbours, trans
     diffusion_probability_move : float
         diffusion probability of the moving particle
     binding_probability : ndarray
-        2d array of floats with shape (7,7) determining the probability of binding beween the different particle types
+        2d array of floats with shape (9,9) determining the probability of binding beween the different particle types
         example: bp[1, 2] is the probability, that particle type 1 binds to particle type 2
         the first row and column are 1, because every particle binds to an empty grid point
         the final tranision probability is the product of the diffusion probability and the inverse binding probability
@@ -157,13 +159,15 @@ def monte_carlo_simulation(num_steps:               int  = None,
                            initial_positions:       np.ndarray = None,
                            diffusion_probability:   np.ndarray = None, 
                            binding_probability:     np.ndarray = None,
-                           reflection_x:            bool = True):
+                           reflection_x:            bool = True, 
+                           stride:                  int = 1,
+                           fname_traj:              str = None):
     """
     monte carlo simulation of binding particles on a grid
     the first index is the x coordinate and the second index is the y coordinate
     i.e. grid[i, j] is the grid point at position x=i, y=j
     
-    there are empty sites (0), 5 particle types (1, 2, 3, 4, 5) and 3 types of collagen interaction sites (6, 7, 8):
+    There are empty sites (0), 5 particle types (1, 2, 3, 4, 5) and 3 types of collagen interaction sites (6, 7, 8):
     0: empty grid point
     1: chemokine
     2: netrin
@@ -183,11 +187,11 @@ def monte_carlo_simulation(num_steps:               int  = None,
         2d array of the initial postitions of the particles with shape (grid_size[0], grid_size[1])
         if entry is 0, the grid position is not occupied
     diffusion_probability : list
-        list of floats with len=7 determining the diffusivity of the particle in x and y direction
+        list of floats with len=9 determining the diffusivity of the particle in x and y direction
         the first and last entry are 0, because the empty grid points and the collagen interaction sites are not moving
         the sum of the entries must be 1
     binding_probability : ndarray
-        2d array of floats with shape (7,7) determining the probability of binding beween the different particle types
+        2d array of floats with shape (9,9) determining the probability of binding beween the different particle types
         example: bp[1, 2] is the probability, that particle type 1 binds to particle type 2
         the first row and column are 1, because every particle binds to an empty grid point
         the final tranision probability is the product of the diffusion probability and the binding probability
@@ -199,8 +203,12 @@ def monte_carlo_simulation(num_steps:               int  = None,
     Returns
     -------
     trajectory: ndarray
-        3d array of shape (num_steps, grid_size[0], grid_size[1]) containing the trajectory of the particles
+        3d array of shape (num_steps//stride+1, grid_size[0], grid_size[1]) containing the trajectory of the particles
     """
+    
+    if fname_traj is None:
+        now = datetime.now().strftime("%Y-%m-%d_%Hh-%Mm-%Ss")
+        fname_traj = os.path.join('trajectories', 'traj_' + now + '.hdf5')
     
     # TODO write temporary functions for simulation testing:
     # check if number of particles stays the same
@@ -208,11 +216,20 @@ def monte_carlo_simulation(num_steps:               int  = None,
     
     n_types = 9 # number of grid point types
 
+    # NOTE unused
     particle_tags = np.array([1, 2, 3, 4, 5]) # 1 = chemokine, 2 = netrin, ...
     
     complex_tags = np.array([4, 5, 7, 8]) # 4 = chemokine-netrin, 5 = chemokine-heparansulfate, ...
     
-    n_all = np.zeros(n_types, dtype=int) # number of sites for each type
+    # TODO remove after testing
+    # save total number of particles
+    n_initial = 0
+    for i in [1, 2, 3, 6]:
+        n_initial += np.sum(initial_positions == i)
+    for i in [4, 5, 8]:
+        n_initial += 2*np.sum(initial_positions == i)
+    n_initial += 3*np.sum(initial_positions == 7)
+    
     
     l_x = initial_positions.shape[0]
     l_y = initial_positions.shape[1]
@@ -239,10 +256,13 @@ def monte_carlo_simulation(num_steps:               int  = None,
     unbond_type_idx[8] = [2, 6] # netrin-collagen_site -> netrin + collagen_site
     
     # create trajectory array
-    trajectory = np.zeros((num_steps, l_x, l_y), dtype=int)
+    #trajectory = np.zeros((num_steps, l_x, l_y), dtype=int)
     
     # first frame are the initial positions
-    trajectory[0] = np.copy(initial_positions)
+    #trajectory[0] = np.copy(initial_positions)
+    
+    # trajectory
+    pos = np.copy(initial_positions)
 
     # keep track of which particles already moved
     pos_moved = np.zeros_like(initial_positions, dtype=bool) 
@@ -254,23 +274,36 @@ def monte_carlo_simulation(num_steps:               int  = None,
     neighbours = np.zeros(4, dtype=int) # +x, -x, +y, -y
     
     
+    fh5 = h5py.File(fname_traj, 'w')
+    traj_h5 = fh5.create_dataset('trajectory', shape=(num_steps//stride+1, l_x, l_y), dtype=int)
+    traj_h5[0] = np.copy(pos)
+    
     for step in tqdm(range(1, num_steps)):
         
-        # update trajectory already beacuse it is dynamically changed in the loop
-        trajectory[step] = np.copy(trajectory[step-1])
-        
+        # update trajectory
+        # trajectory[step] = np.copy(trajectory[step-1])
+                
         # no particle moved yet
         pos_moved.fill(False)    
         
         # loop through all particles and sites
         for idx_x in range(l_x):
             for idx_y in range(l_y):
-                tag = trajectory[step, idx_x, idx_y]
+                # tag = trajectory[step, idx_x, idx_y]
+                tag = pos[idx_x, idx_y]
 
                 # check if site is not empty and if it has not moved yet
                 if (tag != 0) and (pos_moved[idx_x, idx_y] == False):
                     # get transition probabilities
-                    transition_prob = _get_transition_prob(trajectory[step], 
+                    # transition_prob = _get_transition_prob(trajectory[step], 
+                    #                                        idx_x, 
+                    #                                        idx_y, 
+                    #                                        transition_prob, 
+                    #                                        diffusion_probability[tag], 
+                    #                                        binding_probability, 
+                    #                                        reflection_x=reflection_x, 
+                    #                                        l_x=l_x)
+                    transition_prob = _get_transition_prob(pos, 
                                                            idx_x, 
                                                            idx_y, 
                                                            transition_prob, 
@@ -295,7 +328,7 @@ def monte_carlo_simulation(num_steps:               int  = None,
                         new_idx_y = new_idx_y%l_y
                         
                         # check what type of grid point particle moved to
-                        tag_2 = trajectory[step, new_idx_x, new_idx_y]
+                        tag_2 = pos[new_idx_x, new_idx_y]
                         
                         # if it is not an empty grid point a bond happend and particle types need to be updated
                         if tag_2 != 0:
@@ -307,8 +340,8 @@ def monte_carlo_simulation(num_steps:               int  = None,
                             tag_new = tag
                             
                         # update trajectory
-                        trajectory[step, idx_x, idx_y] = 0
-                        trajectory[step, new_idx_x, new_idx_y] = tag_new                
+                        pos[idx_x, idx_y] = 0
+                        pos[new_idx_x, new_idx_y] = tag_new                
                 
                         # mark particle as moved
                         pos_moved[new_idx_x, new_idx_y] = True
@@ -322,7 +355,18 @@ def monte_carlo_simulation(num_steps:               int  = None,
                             for tag_move, tag_stay in zip([tag_1st, tag_2nd], [tag_2nd, tag_1st]):
                                 if not pos_moved[idx_x, idx_y]:   
                                     # get transition probabilities
-                                    unbonding_prob = _get_unbonding_prob(trajectory[step], 
+                                    # unbonding_prob = _get_unbonding_prob(trajectory[step], 
+                                    #                                      idx_x, 
+                                    #                                      idx_y, 
+                                    #                                      tag_move, 
+                                    #                                      tag_stay, 
+                                    #                                      neighbours, 
+                                    #                                      transition_prob, 
+                                    #                                      diffusion_probability[tag_move], 
+                                    #                                      binding_probability, 
+                                    #                                      reflection_x = reflection_x, 
+                                    #                                      l_x = l_x)
+                                    unbonding_prob = _get_unbonding_prob(pos, 
                                                                          idx_x, 
                                                                          idx_y, 
                                                                          tag_move, 
@@ -347,12 +391,28 @@ def monte_carlo_simulation(num_steps:               int  = None,
                                         new_idx_y = (idx_y + step_choice[step_idx, 1])%l_y
                                         
                                         # update trajectory
-                                        trajectory[step, idx_x, idx_y] = tag_stay # leave 2nd particle on same spot
-                                        trajectory[step, new_idx_x, new_idx_y] = tag_move # move 1st particle to new spot
+                                        pos[idx_x, idx_y] = tag_stay # leave 2nd particle on same spot
+                                        pos[new_idx_x, new_idx_y] = tag_move # move 1st particle to new spot
                                         
                                         # mark particles as moved
                                         pos_moved[idx_x, idx_y] = True
                                         pos_moved[new_idx_x, new_idx_y] = True
 
-
-    return trajectory                
+        # update trrajectory
+        if step%stride == 0:
+            traj_h5[step//stride] = np.copy(pos)
+            
+            # check if number of particles stays the same
+            n_current = 0
+            for i in [1, 2, 3, 6]:
+                n_current += np.sum(pos == i)
+            for i in [4, 5, 8]:
+                n_current += 2*np.sum(pos == i)
+            n_current += 3*np.sum(pos == 7)
+            
+            assert n_current == n_initial, f'Assertion error at step {step}\nNumber of particles changed: current = {n_current} vs initial = {n_initial}'
+            
+        
+    fh5.close()
+    #return trajectory
+    #return                

@@ -1,7 +1,12 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import os
+from datetime import datetime
 
-def plot_grid(positions):
+def plot_grid(positions,
+              show: bool = True,
+              save: bool = True,
+              fname: str = None):
     
     grid_size = positions.shape
         
@@ -24,6 +29,8 @@ def plot_grid(positions):
     ax.scatter(*np.where(positions == 2), label="Netrin",                   color="red",    marker=r"--$\cdot$", s=250*marker_scale)
     ax.scatter(*np.where(positions == 4), label="Chemokine-Netrin",         color="green",                       s=90*marker_scale)
     ax.scatter(*np.where(positions == 6), label="Collagen Sites",           color="k",      marker="x",          s=90*marker_scale)
+    ax.scatter(*np.where(positions == 7), label="CN Collagen Sites",           color="k",      marker="o",          s=90*marker_scale)
+    ax.scatter(*np.where(positions == 8), label="N Collagen Sites",           color="k",      marker="*",          s=90*marker_scale)
 
 
     ax.set_xlim(-plot_edge, grid_size[0]+plot_edge)    
@@ -41,4 +48,11 @@ def plot_grid(positions):
 
     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     #draw frame
-    plt.show()
+    if show:
+        plt.show()
+    if save:
+        if fname is None:
+            now = datetime.now().strftime("%Y-%m-%d_%Hh-%Mm-%Ss")
+            fname = os.path.join(os.getcwd(), 'plots', 'plot_'+now+'.png')
+        plt.savefig(fname)
+        print(f'plot saved at {fname}.')
