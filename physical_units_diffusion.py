@@ -8,14 +8,14 @@ def calc_time_step_ratio(energy_matrix, diffusivity_array):
     if len(diffusivity_array) != len(energy_matrix):
         print("Error: length of diffusivity array must be the same as the number of rows in the energy matrix")
         return
-    max_dexp = 0 # initialize maximum product of diffusivity with exp(energy)
+    max_dexp2 = 0 # initialize maximum product of diffusivity with exp(energy)
     for i in range(len(energy_matrix)):
         for j in range(i + 1, len(energy_matrix)):
-            if np.exp(energy_matrix[i, j]) * diffusivity_array[j] > max_dexp:
-                max_dexp = np.exp(energy_matrix[i, j]) * diffusivity_array[j] # maximum of occuring product
+            if np.exp(energy_matrix[i, j]) * diffusivity_array[j] > max_dexp2:
+                max_dexp2 = np.exp(energy_matrix[i, j]) * diffusivity_array[j] # maximum of occuring product
 
-    max_d = np.max(diffusivity_array)
-    max_tot = np.max([max_dexp, max_d]) # if all binding energies are negative, moving probability is higher for pure diffusion
+    max_dexp = np.max(diffusivity_array * np.exp(energy_matrix))
+    max_tot = np.max([max_dexp, max_dexp2]) # if all binding energies are negative, moving probability is higher for pure diffusion
     ratio = 1 / (5 * max_tot)
     return ratio
 

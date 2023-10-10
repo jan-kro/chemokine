@@ -1,8 +1,9 @@
+import os
+import h5py
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
+from datetime import datetime
 from numba import njit
-
+from tqdm import tqdm
 
 """
 GENERAL IDEA
@@ -22,492 +23,396 @@ sowieso nicht wirklich funktionieren würde.
 Den monte calro step an sich hab ich noch nicht geschriben, hab aber das wichtigste dazu unten kommentiert
 """
 
-@njit
-def _monte_carlo_step():
-    # TODO
-    return
+# TODO (maybe): write a _get_neighbours function that returns the neighbour tags 
 
-#@njit still not working
-def _check_all(pos1, pos2, n1, n2):
+def _get_transition_prob(pos, i, j, transition_prob, diffusion_probability, binding_probability, reflection_x: bool = True, l_x: int = None):
     """
-    Checks if particles are bonded (= on the same positions) and if particles are neighbours (= distance 1 to each other)
+    Calculates the 5 tranistion probabilities [+x -x +y -y stay] for the particle pos_idx in pos.
+    Periodic boundaries are taken into account and an optional reflective boundary in x direction.
+    The final transition probability is the product of the diffusion probability and the binding probability.
     
     Parameters
     ----------
-    pos1 : ndarray
-        2d array of the positions of the first particle type
-    pos2 : ndarray
-        2d array of the positions of the second particle type
-    n1 : int
-        number of particles of the first type
-    n2 : int
-        number of particles of the second type
+    pos : np.ndarray
+        2d array of the positions of the particles with shape (grid_size[0], grid_size[1])
+    i, j : int
+        indices of the particle in pos. pos[i, j] = particle tag
+    transition_prob : np.ndarray
+        1d array of len=5 to store the transition probabilities in the following order: [+x -x +y -y stay]
+    diffusion_probability : list
+        list of floats with len=9 determining the diffusivity of the particle in x and y direction
+        the first and last entry are 0, because the empty grid points and the collagen interaction sites are not moving
+        the sum of the entries must be 1
+    binding_probability : ndarray
+        2d array of floats with shape (9,9) determining the probability of binding beween the different particle types
+        example: bp[1, 2] is the probability, that particle type 1 binds to particle type 2
+        the first row and column are 1, because every particle binds to an empty grid point
+        the final tranision probability is the product of the diffusion probability and the binding probability
+        the maximal possible value of this product has to be 1/4, otherwise there could arise cases where the sum of 
+        transition probabilities is larger than 1
+    reflection_x : bool, optional
+        if True, the particles are reflected at the left and right wall, if False, they are wrapped around
+    l_x : int, optional
+        length of the grid in x direction, by default None
+        only used if reflection_x is True
         
     Returns
     -------
-    bonded_idx : ndarray
-        2d array of the indices of the bonded particles. Entries are [[bond1_type0, bond1_type1],
-                                                                     [bond2_type0, bond2_type1],
-                                                                               . . .          ]] 
-    neighbour_idx : ndarray
-        2d array of the indices of the neighbouring particles    
+    transition_prob : np.ndarray
+        1d array of len=5 with the transition probabilities in the following order: [+x -x +y -y stay]
     """
     
+    tag = pos[i, j]
     
-    # NOTE: idk ob es effizienter ist die arrays in einer gewissen größe vorzudefinieren und dann den ungefüllten
-    #       part wegzuslicen, oder ob append ok ist
+    if reflection_x:
+        if i == 0:
+            transition_prob[0] = binding_probability[tag, pos[:, j].take(i+1, mode="wrap")] # +x
+            transition_prob[1] = 0 # wall                                                   # -x    
+        elif i == l_x-1:
+            transition_prob[0] = 0 # wall                                                   # +x
+            transition_prob[1] = binding_probability[tag, pos[:, j].take(i-1, mode="wrap")] # -x
+        else:
+            transition_prob[[0,1]] = binding_probability[[tag, tag], pos[:, j].take([i+1, i-1], mode="wrap")] # +x, -x
+        
+        transition_prob[[2,3]] = binding_probability[[tag, tag], pos[i, :].take([j+1, j-1], mode="wrap")] # +y, -y
+    else:  
+        transition_prob[[0,1]] = binding_probability[[tag, tag], pos[:, j].take([i+1, i-1], mode="wrap")] # +x, -x
+        transition_prob[[2,3]] = binding_probability[[tag, tag], pos[i, :].take([j+1, j-1], mode="wrap")] # +y, -y
     
+    transition_prob *= diffusion_probability    
+    transition_prob[4] = 1 - np.sum(transition_prob[:4]) 
     
-    # initialize arrays
-    
-    # either the smaller amount of particles has 4 neighbours for every particle, or the bigger amount is the limit 
-    # BUT its probably cheaper to always create the bigger array if the order of magnitude is similar (idk though)
-    n_min = min(n1, n2)
-    
-    bonded_idx =  np.ones((n_min, 2), dtype=int)
-    neighbour_idx =  np.ones((n_min*4, 2), dtype=int) 
-    
-    n_bonded = 0
-    n_neighbour = 0
-    
-    for i in range(n1):
-        for j in range(n2):
-            dvec_x = pos2[j, 0] - pos1[i, 0]
-            dvec_y = pos2[j, 1] - pos1[i, 1]
-            
-            # if the distance of both particles is 0, they are bonded
-            if dvec_y == 0 and dvec_x == 0:
-                bonded_idx[n_bonded] = [i,j]
-                n_bonded += 1
-            
-            # if distance is 1, they are neighbours
-            elif abs(dvec_x) + abs(dvec_y) == 1: 
-                neighbour_idx[n_neighbour] = [i,j]
-                n_neighbour += 1
-    
-    # if an atom is bonded it cannot be a neighbour, so remove it from the neighbour list 
-       
-    # Remove entries in idx_neighbours where the first element is in bond_elements
-    # if neither particles of type 0 nor particles of type 1 are involven in a bond, they can be neighbours           
-    neighbour_idx = [x for x in neighbour_idx if (x[0] not in bonded_idx[:, 0]) and (x[1] not in bonded_idx[:, 1]) and x[0] != -1]        
-    
-    return np.array(bonded_idx[:n_bonded], ndmin=2), np.array(neighbour_idx, ndmin=2)
-                
+    return transition_prob
 
-def monte_carlo_simulation(num_steps:               int  = 1000,
-                           grid_size:               list = [100, 50], 
-                           particle_diffusivity:    list = [1., 1., 0.5, 0.2, 0.1], 
-                           binding_probability:     list = [[0, 0.5], [0.5, 0]],
-                           c_heparansulfate:        float = 0.005,
-                           initial_positions:       np.ndarray = None,
-                           particle_types:          list = None,
-                           n_particles:             int  = 100, 
-                           fraction_x:              float = 0.2,
-                           collagen_y:              int   = None,
-                           reflection:              bool = True):
-    """
-    monte carlo simulation of binding particles on a grid
-    
-    there are 5 particles types (0, 1, 2, 3, 4):
-    0: chemokine
-    1: netrin
-    2: heparansulfate
-    3: chemokine-heparansulfate complex
-    4: chemokine-netrin complex
+def _get_unbonding_prob(pos, idx_x, idx_y, tag_move, tag_stay, neighbours, transition_prob, diffusion_probability_move, binding_probability, reflection_x: bool = True, l_x: int = None):
+    '''
+    Calculates the 5 tranistion probabilities [+x -x +y -y stay] for an unbonding complex.
+    Periodic boundaries are taken into account and an optional reflective boundary in x direction.
     
     Parameters
     ----------
-    grid_size : list
-        list of integers determining the length of the grid in x and y direction
+    pos : np.ndarray
+        2d array of the positions of the particles with shape (grid_size[0], grid_size[1])
+    idx_x, idx_y : int
+        indices of the particle-complex in pos. pos[ix, iy] = tag of the complex
+    tag_move : int
+        tag of the particle that is moving
+    tag_stay : int
+        tag of the particle that stays
+    neighbours : np.ndarray
+        1d array of len=4 to store the neighbours of the particle in the following order: [+x -x +y -y]
+    transition_prob : np.ndarray
+        1d array of len=5 to store the transition probabilities in the following order: [+x -x +y -y stay]
+    diffusion_probability_move : float
+        diffusion probability of the moving particle
+    binding_probability : ndarray
+        2d array of floats with shape (9,9) determining the probability of binding beween the different particle types
+        example: bp[1, 2] is the probability, that particle type 1 binds to particle type 2
+        the first row and column are 1, because every particle binds to an empty grid point
+        the final tranision probability is the product of the diffusion probability and the inverse binding probability
+    reflection_x : bool, optional
+        if True, the particles are reflected at the left and right wall, if False, they are wrapped around
+    l_x : int, optional
+        length of the grid in x direction, by default None
+        
+    Returns
+    -------
+    transition_prob : np.ndarray
+        1d array of len=5 with the transition probabilities for the moving particle in the following order: [+x -x +y -y stay]
+    '''
+    
+    binding_probability = binding_probability[tag_move, tag_stay]
+    # check for (un)allowed moves
+    if reflection_x:
+        if idx_x == 0:
+            neighbours[0] = pos[:, idx_y].take(idx_x+1, mode="wrap") # +x
+            neighbours[1] = 1 # wall                                                   # -x    
+        elif idx_x == l_x-1:
+            neighbours[0] = 1 # wall                                                   # +x
+            neighbours[1] = pos[:, idx_y].take(idx_x-1, mode="wrap") # -x
+        else:
+            neighbours[[0,1]] = pos[:, idx_y].take([idx_x+1, idx_x-1], mode="wrap") # +x, -x
+        
+        neighbours[[2,3]] =  pos[idx_x, :].take([idx_y+1, idx_y-1], mode="wrap") # +y, -y
+    else:  
+        neighbours[[0,1]] = pos[:, idx_y].take([idx_x+1, idx_x-1], mode="wrap") # +x, -x
+        neighbours[[2,3]] =  pos[idx_x, :].take([idx_y+1, idx_y-1], mode="wrap") # +y, -y
+    
+    for k, nb in enumerate(neighbours):
+        if nb==0:
+            transition_prob[k] = diffusion_probability_move/binding_probability
+        else:
+            transition_prob[k] = 0
+    
+    #! CHOOSE BINDING AND DIFFUSION PROBABILITIES SUCH THAT THE MAXIMUM OF THE PRODUCT IS 1/4
+    # TODO remove this, once fixed
+    if np.sum(transition_prob[:4])>1:
+        transition_prob[:4] = transition_prob[:4]/np.max(transition_prob[:4])*0.25
+    
+    # normalize transition probability
+    transition_prob[4] = 1 - np.sum(transition_prob[:4])
+    
+    return transition_prob
+    
+                
+def monte_carlo_simulation(num_steps:               int  = None,
+                           initial_positions:       np.ndarray = None,
+                           diffusion_probability:   np.ndarray = None, 
+                           binding_probability:     np.ndarray = None,
+                           reflection_x:            bool = True, 
+                           stride:                  int = 1,
+                           fname_traj:              str = None):
+    """
+    monte carlo simulation of binding particles on a grid
+    the first index is the x coordinate and the second index is the y coordinate
+    i.e. grid[i, j] is the grid point at position x=i, y=j
+    
+    There are empty sites (0), 5 particle types (1, 2, 3, 4, 5) and 3 types of collagen interaction sites (6, 7, 8):
+    0: empty grid point
+    1: chemokine
+    2: netrin
+    3: heparansulfate
+    4: chemokine-netrin complex
+    5: chemokine-heperansulfate complex
+    6: collagen interaction site
+    7: chemokine-netrin-collagen_site complex
+    8: netrin-collagen_site complex
+    
+    
+    Parameters
+    ----------
     num_steps : int
         number of steps the simulation should run
-    particle_diffusivity : list
-        list of floats determining the diffusivity of the particle in x and y direction
-        the first two entries are the diffusivity of particle types
-    binding_probability : list
-        2d list of floats determining the probability of binding beween the different particle types
-        example: bp[0,1] is the probability, that particle type 1 binds to particle type 2
-    c_heparansulfate: float
-        concentration (fraction of total gridpoints over number of heparansulfates) 
-        positions are drawn uniformly
-    initial_positions : np.ndarray, optional
-        2d list of the initial postitions of the chemokine (type 0) and netrin (type 1) particles shape (n0+n1, 2)
-        if None, the particles are placed randomly on the grid
-    particle_types : list, optional
-        list of the particle types on length n0+n1
-        if None the particle types are randomly assigned with a 50% probability to be of type 0 or 1
-    n_particles : int
-        if initial_positions is None, this determines the number of particles of each type.
-        if initial positions are given, this is ignored
-    fraction_x : float
-        fraction of the grid in x direction, where the particles are placed, to create a gradient
-        only used if initial_positions is None
-    collagen_y : int, optional
-        y-value of the collagen fiber, by default center of the grid
+    initial_positions : np.ndarray
+        2d array of the initial postitions of the particles with shape (grid_size[0], grid_size[1])
+        if entry is 0, the grid position is not occupied
+    diffusion_probability : list
+        list of floats with len=9 determining the diffusivity of the particle in x and y direction
+        the first and last entry are 0, because the empty grid points and the collagen interaction sites are not moving
+        the sum of the entries must be 1
+    binding_probability : ndarray
+        2d array of floats with shape (9,9) determining the probability of binding beween the different particle types
+        example: bp[1, 2] is the probability, that particle type 1 binds to particle type 2
+        the first row and column are 1, because every particle binds to an empty grid point
+        the final tranision probability is the product of the diffusion probability and the binding probability
+        the maximal possible value of this product has to be 1/4, otherwise there could arise cases where the sum of 
+        transition probabilities is larger than 1
     reflection : bool, optional
         if True, the particles are reflected at the left and right wall, if False, they are wrapped around
     
     Returns
     -------
-    trajectory_chemokine: ndarray
-        3d array of the trajectory of the chemokine particles
-    trajectory_netrin: ndarray
-        3d array of the trajectory of the netrin particles
-    trajectory_heparansulfate: ndarray
-        3d array of the trajectory of the heparansulfate particles
-    trajectory_chemokine_netrin: ndarray
-        3d array of the trajectory of the chemokine-netrin complexes
-    trajectory_chemokine_heparansulfate: ndarray
-        3d array of the trajectory of the chemokine-heparansulfate complexes
+    trajectory: ndarray
+        3d array of shape (num_steps//stride+1, grid_size[0], grid_size[1]) containing the trajectory of the particles
     """
     
+    if fname_traj is None:
+        now = datetime.now().strftime("%Y-%m-%d_%Hh-%Mm-%Ss")
+        fname_traj = os.path.join('trajectories', 'traj_' + now + '.hdf5')
     
+    # TODO write temporary functions for simulation testing:
+    # check if number of particles stays the same
+    # check if number of particles of each type stays the same
     
-    # create initial positions of particles, with the condition that the do not overlap
-    if initial_positions is None:
-        # Initialize the particle positions randomly within the grid
-        initial_positions_x = np.random.randint(0, int(grid_size[0]*fraction_x))
-        initial_positions_y = np.random.randint(0, grid_size[1])
-        initial_positions = np.array([initial_positions_x, initial_positions_y], ndmin=2)
-        for i in range(n_particles-1):
-            initial_positions_x = np.random.randint(0, int(grid_size[0]*fraction_x))
-            initial_positions_y = np.random.randint(0, grid_size[1])
-            new_init_pos = np.array([initial_positions_x, initial_positions_y], ndmin=2)
-            maxit_init = 10000
-            while np.any(np.all(new_init_pos == initial_positions, axis=1)):
-                initial_positions_x = np.random.randint(0, int(grid_size[0]*fraction_x))
-                initial_positions_y = np.random.randint(0, grid_size[1])
-                new_init_pos = np.array([initial_positions_x, initial_positions_y], ndmin=2)
-                if maxit_init == 0:
-                    raise ValueError("Initial particle positions. the grid may be too small")
-                maxit_init -= 1
-            initial_positions = np.append(initial_positions, new_init_pos, axis=0)
-    
-    # if the particle types are not specified, randomly assign them (no bonded particles at the beginning)
-    if particle_types is None:
-        particle_types = np.random.randint(0, 2, size=(len(initial_positions)))
-    
-    # validate input
-    if len(initial_positions) != len(particle_types):
-        raise ValueError("Number of initial positions and particle types do not match")
-    
-    # if y value of the collagen fiber is not given, choose the middle of the grid
-    if collagen_y is None:
-        collagen_y = np.round(grid_size[1]/2)
-    
-    # TODO implement proper probability calculations
-    # probabilities is an array of shape (n_particle_types, 3)
-    # with dimension 0 being the particle type
-    # and dimension 1 being the step choice from which to draw for every direction (0, 1, -1)
-    # example: 
-    #   probabilities[1, 2] is the probability of the netrin particle move -1 step along the grid
-    #   the direction (x/y) is not specified 
-    probabilities = np.array([np.array([1,1,1,1,1]), particle_diffusivity, particle_diffusivity]).T
-    probabilities = probabilities/np.sum(probabilities, axis=1, keepdims=True)
-    step_choice = np.array([0, 1, -1])
+    n_types = 9 # number of grid point types
 
+    # NOTE unused
+    particle_tags = np.array([1, 2, 3, 4, 5]) # 1 = chemokine, 2 = netrin, ...
     
-    # number of particles of each type
-    n_particles_chemokine                = np.sum(particle_types == 0, dtype=int)
-    n_particles_netrin                   = np.sum(particle_types == 1, dtype=int)
-    n_particles_heparansulfate           = int(c_heparansulfate * grid_size[0] * grid_size[1])
-    n_particles_chemokine_netrin         = 0
-    n_particles_chemokine_heparansulfate = 0
+    complex_tags = np.array([4, 5, 7, 8]) # 4 = chemokine-netrin, 5 = chemokine-heparansulfate, ...
     
-    # value to fill the trajectory with, if a particle is not present
-    deleted_value = -10 
+    # TODO remove after testing
+    # save total number of particles
+    n_initial = 0
+    for i in [1, 2, 3, 6]:
+        n_initial += np.sum(initial_positions == i)
+    for i in [4, 5, 8]:
+        n_initial += 2*np.sum(initial_positions == i)
+    n_initial += 3*np.sum(initial_positions == 7)
     
-    # initialize trajectories 
-    trajectory_chemokine                = deleted_value * np.ones((num_steps,   n_particles_chemokine, 2),      dtype=int) 
-    trajectory_netrin                   = deleted_value * np.ones((num_steps,   n_particles_netrin, 2),         dtype=int) 
-    trajectory_heparansulfate           = deleted_value * np.ones((num_steps+1, n_particles_heparansulfate, 2), dtype=int)
-    trajectory_chemokine_netrin         = deleted_value * np.ones((num_steps+1, n_particles_chemokine_netrin + int(np.min([n_particles_chemokine, n_particles_netrin])),  2), dtype=int)
-    trajectory_chemokine_heparansulfate = deleted_value * np.ones((num_steps+1, n_particles_chemokine_heparansulfate + int(np.min([n_particles_chemokine, n_particles_heparansulfate])), 2), dtype=int)
     
-    # define initial positions 
-    pos_chemokine = initial_positions[particle_types == 0]
-    pos_netrin    = initial_positions[particle_types == 1]
+    l_x = initial_positions.shape[0]
+    l_y = initial_positions.shape[1]
     
-    # create heparan sulfates
-    pos_hep_x = np.random.randint(0, grid_size[0], size=n_particles_heparansulfate)
-    pos_hep_y = np.random.randint(0, grid_size[1], size=n_particles_heparansulfate)
-    pos_heparansulfate = np.array([pos_hep_x, pos_hep_y]).T
+    # possible steps for a particle
+    step_choice = np.array([[1, 0], [-1, 0], [0, 1], [0, -1], [0, 0]]) # +x, -x, +y, -y, stay
     
-    # no complexes present at the beginning 
-    # TODO change at some point
-    pos_chemokine_netrin         = trajectory_chemokine_netrin[0] 
-    pos_chemokine_heparansulfate = trajectory_chemokine_heparansulfate[0]
+    # bond types
+    bond_type_idx = np.zeros((n_types, n_types), dtype=int)
+    bond_type_idx[1, 2] = 4 # chemokine + netrin -> chemokine-netrin complex
+    bond_type_idx[2, 1] = 4
+    bond_type_idx[1, 3] = 5 # chemokine + heparansulfate -> chemokine-heparansulfate complex 
+    bond_type_idx[3, 1] = 5
+    bond_type_idx[4, 6] = 7 # chemokine-netrin + collagen_site -> chemokine-netrin-collagen_site
+    bond_type_idx[6, 4] = 7 # 
+    bond_type_idx[2, 6] = 8 # netrin + collagen_site -> chemokine-heparansulfate-collagen_site
+    bond_type_idx[6, 2] = 8 # 
     
-    # add initial positions to trajectories
-    trajectory_chemokine[0, :n_particles_chemokine, :]                               = np.copy(pos_chemokine)
-    trajectory_netrin[0, :n_particles_netrin, :]                                     = np.copy(pos_netrin)
-    trajectory_heparansulfate[0, :n_particles_heparansulfate, :]                     = np.copy(pos_heparansulfate)
-    trajectory_chemokine_netrin[0, :n_particles_chemokine_netrin, :]                 = pos_chemokine_netrin[:n_particles_chemokine_netrin]
-    trajectory_chemokine_heparansulfate[0, :n_particles_chemokine_heparansulfate, :] = pos_chemokine_heparansulfate[:n_particles_chemokine_heparansulfate]
+    unbond_type_idx = np.zeros((n_types, 2), dtype=int)
+    unbond_type_idx[4] = [1, 2] # chemokine-netrin -> chemokine + netrin
+    unbond_type_idx[5] = [1, 3] # chemokine-heparansulfate -> chemokine + heparansulfate
+    #! in the below case, is it possible for only chemokine to hop off?
+    unbond_type_idx[7] = [4, 6] # chemokine-netrin-collagen_site -> chemokine-netrin + collagen_site
+    unbond_type_idx[8] = [2, 6] # netrin-collagen_site -> netrin + collagen_site
     
-    # check if any chemokine-netrin complexes are bonded to collagen
-    idx_fixed = np.where(pos_chemokine_netrin[:, 1] == collagen_y)[0]
-    pos_fixed = pos_chemokine_netrin[idx_fixed]
+    # create trajectory array
+    #trajectory = np.zeros((num_steps, l_x, l_y), dtype=int)
+    
+    # first frame are the initial positions
+    #trajectory[0] = np.copy(initial_positions)
+    
+    # trajectory
+    pos = np.copy(initial_positions)
 
-    for step in range(1, num_steps):
+    # keep track of which particles already moved
+    pos_moved = np.zeros_like(initial_positions, dtype=bool) 
+    
+    # transition probability array
+    transition_prob = np.zeros(5)
+    
+    # neighbour array for certain particle
+    neighbours = np.zeros(4, dtype=int) # +x, -x, +y, -y
+    
+    
+    fh5 = h5py.File(fname_traj, 'w')
+    traj_h5 = fh5.create_dataset('trajectory', shape=(num_steps//stride+1, l_x, l_y), dtype=int)
+    traj_h5[0] = np.copy(pos)
+    
+    for step in tqdm(range(1, num_steps)):
         
-        # TODO take care of possibility that the particle complex can split again 
-        # maybe like:
-        #
-        # idx_unbonded_1 = [1, 4, 33, 86, ...] # only 1D
-        #
-        # if idx_unbonded_1.shape[1] > 0:
-        #   n_unbonded_1 = len(idx_unbonded_1)
-        #   trajectory_chemokine[step, n_particles_chemokine:n_particles_chemokine+n_unbonded_1, :] = pos_chemokine_netrin[idx_unbonded_1, :]
-        #   trajectory_netrin[step, n_particles_netrin:n_particles_netrin+n_unbonded_1, :] = pos_chemokine_netrin[idx_unbonded_1, :]
-        #   
-        #  n_particles_chemokine_netrin -= n_unbonded_1
-        #  n_particles_chemokine += n_unbonded_1
-        #  n_particles_netrin += n_unbonded_1
-        #
-        #  trajectory_chemokine_netrin[step, :n_particles_chemokine_netrin, :] = np.delete(pos_chemokine_netrin, idx_unbonded_1, axis=0)[:n_particles_chemokine_netrin]
-        #
-        # ! IMPORTANT: if this is implemented the way of fixing particles to the fiber does not work anymore 
+        # update trajectory
+        # trajectory[step] = np.copy(trajectory[step-1])
+                
+        # no particle moved yet
+        pos_moved.fill(False)    
         
-        # check if chemokine is bonded to netrin
-        idx_bonded_1, idx_neighbour_1 = _check_all(pos_chemokine, pos_netrin, n_particles_chemokine, n_particles_netrin)
-        n_bonded_1 = idx_bonded_1.shape[0]
+        # loop through all particles and sites
+        for idx_x in range(l_x):
+            for idx_y in range(l_y):
+                # tag = trajectory[step, idx_x, idx_y]
+                tag = pos[idx_x, idx_y]
+
+                # check if site is not empty and if it has not moved yet
+                if (tag != 0) and (pos_moved[idx_x, idx_y] == False):
+                    # get transition probabilities
+                    # transition_prob = _get_transition_prob(trajectory[step], 
+                    #                                        idx_x, 
+                    #                                        idx_y, 
+                    #                                        transition_prob, 
+                    #                                        diffusion_probability[tag], 
+                    #                                        binding_probability, 
+                    #                                        reflection_x=reflection_x, 
+                    #                                        l_x=l_x)
+                    transition_prob = _get_transition_prob(pos, 
+                                                           idx_x, 
+                                                           idx_y, 
+                                                           transition_prob, 
+                                                           diffusion_probability[tag], 
+                                                           binding_probability, 
+                                                           reflection_x=reflection_x, 
+                                                           l_x=l_x)
+                    
+                    # choose new position
+                    step_idx = np.random.choice(5, p=transition_prob)
+                    new_idx_x = idx_x + step_choice[step_idx, 0]
+                    new_idx_y = idx_y + step_choice[step_idx, 1]
+                                        
+                    # if particle is shifted:
+                    #  - wrap new indices
+                    #  - check if bonded
+                    #  - update positions 
+                    #  - mark particle as moved
+                    if step_idx != 4:
+                        # wrap
+                        new_idx_x = new_idx_x%l_x
+                        new_idx_y = new_idx_y%l_y
+                        
+                        # check what type of grid point particle moved to
+                        tag_2 = pos[new_idx_x, new_idx_y]
+                        
+                        # if it is not an empty grid point a bond happend and particle types need to be updated
+                        if tag_2 != 0:
+                            # particle bonded
+                            # get tag of new particle
+                            tag_new = bond_type_idx[tag, tag_2]
+                        else:
+                            # particle moved to an empty grid point
+                            tag_new = tag
+                            
+                        # update trajectory
+                        pos[idx_x, idx_y] = 0
+                        pos[new_idx_x, new_idx_y] = tag_new                
+                
+                        # mark particle as moved
+                        pos_moved[new_idx_x, new_idx_y] = True
+                        
+                    # if not shifted, check for possibility of unbonding
+                    else:
+                        if tag in complex_tags:
+                            # choose wich particle gets moved first
+                            tag_1st, tag_2nd = unbond_type_idx[tag][np.random.choice(2, size=2, replace=False)]
+                            
+                            for tag_move, tag_stay in zip([tag_1st, tag_2nd], [tag_2nd, tag_1st]):
+                                if not pos_moved[idx_x, idx_y]:   
+                                    # get transition probabilities
+                                    # unbonding_prob = _get_unbonding_prob(trajectory[step], 
+                                    #                                      idx_x, 
+                                    #                                      idx_y, 
+                                    #                                      tag_move, 
+                                    #                                      tag_stay, 
+                                    #                                      neighbours, 
+                                    #                                      transition_prob, 
+                                    #                                      diffusion_probability[tag_move], 
+                                    #                                      binding_probability, 
+                                    #                                      reflection_x = reflection_x, 
+                                    #                                      l_x = l_x)
+                                    unbonding_prob = _get_unbonding_prob(pos, 
+                                                                         idx_x, 
+                                                                         idx_y, 
+                                                                         tag_move, 
+                                                                         tag_stay, 
+                                                                         neighbours, 
+                                                                         transition_prob, 
+                                                                         diffusion_probability[tag_move], 
+                                                                         binding_probability, 
+                                                                         reflection_x = reflection_x, 
+                                                                         l_x = l_x)
+                            
+                                    # choose new position
+                                    step_idx = np.random.choice(5, p=unbonding_prob)
+                                    
+                                    # if particle is shifted:
+                                    #  - wrap new indices
+                                    #  - update positions
+                                    #  - mark particle as moved
+                                    if step_idx != 4:
+                                        # update position and wrap around
+                                        new_idx_x = (idx_x + step_choice[step_idx, 0])%l_x
+                                        new_idx_y = (idx_y + step_choice[step_idx, 1])%l_y
+                                        
+                                        # update trajectory
+                                        pos[idx_x, idx_y] = tag_stay # leave 2nd particle on same spot
+                                        pos[new_idx_x, new_idx_y] = tag_move # move 1st particle to new spot
+                                        
+                                        # mark particles as moved
+                                        pos_moved[idx_x, idx_y] = True
+                                        pos_moved[new_idx_x, new_idx_y] = True
+
+        # update trrajectory
+        if step%stride == 0:
+            traj_h5[step//stride] = np.copy(pos)
+            
+            # check if number of particles stays the same
+            n_current = 0
+            for i in [1, 2, 3, 6]:
+                n_current += np.sum(pos == i)
+            for i in [4, 5, 8]:
+                n_current += 2*np.sum(pos == i)
+            n_current += 3*np.sum(pos == 7)
+            
+            assert n_current == n_initial, f'Assertion error at step {step}\nNumber of particles changed: current = {n_current} vs initial = {n_initial}'
+            
         
-        # add to bonded and remove from unbonded
-        if n_bonded_1 > 0: # if particles are bonded
-            
-            # add to complex
-            
-            # add old positions to new step
-            trajectory_chemokine_netrin[step, :n_particles_chemokine_netrin, :] = pos_chemokine_netrin[:n_particles_chemokine_netrin]
-            
-            # add new positions to new step
-            trajectory_chemokine_netrin[step, n_particles_chemokine_netrin:n_particles_chemokine_netrin+n_bonded_1, :] = pos_chemokine[idx_bonded_1[:,0], :]
-
-            # update number of particles
-            n_particles_netrin           -= n_bonded_1
-            n_particles_chemokine_netrin += n_bonded_1
-            
-            # remove from unbonded
-            trajectory_netrin[step, :n_particles_netrin]       = np.delete(pos_netrin, idx_bonded_1[:,1],    axis=0)[:n_particles_netrin]
-            
-        else:
-            # nothing happens to complex and netrin
-            trajectory_netrin[step]           = np.copy(pos_netrin)
-            trajectory_chemokine_netrin[step] = np.copy(pos_chemokine_netrin)
-            
-        # check if chemokine bonded to heparan sulfate
-        idx_bonded_2, idx_neighbour_2 = _check_all(pos_chemokine, pos_heparansulfate, n_particles_chemokine, n_particles_heparansulfate)
-        n_bonded_2 = idx_bonded_2.shape[0]
-        
-        if  n_bonded_2> 0: # if particles are bonded
-            
-            # add to bonded
-            trajectory_chemokine_heparansulfate[step, :n_particles_chemokine_heparansulfate, :] = pos_chemokine_heparansulfate[:n_particles_chemokine_heparansulfate]
-            trajectory_chemokine_heparansulfate[step, n_particles_chemokine_heparansulfate:n_particles_chemokine_heparansulfate+n_bonded_2, :] = pos_chemokine[idx_bonded_2[:,0], :]
-            
-            # update number of particles
-            n_particles_heparansulfate -= n_bonded_2
-            n_particles_chemokine_heparansulfate += n_bonded_2
-            
-            # remove from unbonded
-            trajectory_heparansulfate[step, :n_particles_heparansulfate] = np.delete(pos_heparansulfate, idx_bonded_2[:,1], axis=0)[:n_particles_heparansulfate]
-        else:
-            # noting happens to complex and heparansulfate
-            trajectory_heparansulfate[step] = np.copy(pos_heparansulfate)
-            trajectory_chemokine_heparansulfate[step] = np.copy(pos_chemokine_heparansulfate)
-        
-        # check if chemokine bonds to both netrin and heparansulfate
-        if n_bonded_1 > 0 and n_bonded_2 > 0:
-            # to not overwrite particles this must be in one step 
-            n_particles_chemokine -= n_bonded_1 + n_bonded_2
-            trajectory_chemokine[step, :n_particles_chemokine] = np.delete(pos_chemokine, np.append(idx_bonded_1[:,0], idx_bonded_2[:,0]), axis=0)[:n_particles_chemokine]
-            
-        elif n_bonded_1 > 0:
-            n_particles_chemokine -= n_bonded_1
-            trajectory_chemokine[step, :n_particles_chemokine] = np.delete(pos_chemokine, idx_bonded_1[:,0], axis=0)[:n_particles_chemokine]
-            
-        elif n_bonded_2 > 0:
-            n_particles_chemokine -= n_bonded_2
-            trajectory_chemokine[step, :n_particles_chemokine] = np.delete(pos_chemokine, idx_bonded_2[:,0], axis=0)[:n_particles_chemokine]
-        
-        else:
-            # nothing happens to chemokine
-            trajectory_chemokine[step] = np.copy(pos_chemokine)
-            
-        # ~~~~~~~~~~~~~~~~~~~~~~~
-        # PERFORM MONTE CARLO STEP
-        # ~~~~~~~~~~~~~~~~~~~~~~~
-        # - accept/reject step
-        #   - accaptance probability differs for all particle types (= different mobility)
-        #   - additionally, the probability changes, when two particles are next to each other (-> neigbours)
-        #   - direction is weighted if there are neighbours
-        # - check if move is allowed
-        #   - are two particles on the same position? 
-        #   - would they move outside the box?
-        # - update positions
-        
-        # simulate mc step
-        # TODO remove once mc is implemented
-        trajectory_chemokine[step, :n_particles_chemokine]                               += np.random.choice(step_choice, size=(n_particles_chemokine, 2), p=probabilities[0])
-        trajectory_netrin[step, :n_particles_netrin]                                     += np.random.choice(step_choice, size=(n_particles_netrin, 2), p=probabilities[1])
-        trajectory_chemokine_netrin[step, :n_particles_chemokine_netrin]                 += np.random.choice(step_choice, size=(n_particles_chemokine_netrin, 2), p=probabilities[2])
-        trajectory_heparansulfate[step, :n_particles_heparansulfate]                     += np.random.choice(step_choice, size=(n_particles_heparansulfate, 2), p=probabilities[3])
-        trajectory_chemokine_heparansulfate[step, :n_particles_chemokine_heparansulfate] += np.random.choice(step_choice, size=(n_particles_chemokine_heparansulfate, 2), p=probabilities[4])  
-        
-        
-        if reflection:
-            # boundary condition with left and right reflection
-            # if particle goes outside the box, it is reflected at the wall
-            
-            # left wall
-            idx_left = np.where(trajectory_chemokine[step, :n_particles_chemokine, 0] < 0)[0]
-            trajectory_chemokine[step, idx_left, 0] = -trajectory_chemokine[step, idx_left, 0]
-            
-            idx_left = np.where(trajectory_netrin[step, :n_particles_netrin, 0] < 0)[0]
-            trajectory_netrin[step, idx_left, 0] = -trajectory_netrin[step, idx_left, 0]
-            
-            idx_left = np.where(trajectory_chemokine_netrin[step, :n_particles_chemokine_netrin, 0] < 0)[0]
-            trajectory_chemokine_netrin[step, idx_left, 0] = -trajectory_chemokine_netrin[step, idx_left, 0]
-            
-            idx_left = np.where(trajectory_heparansulfate[step, :n_particles_heparansulfate, 0] < 0)[0]
-            trajectory_heparansulfate[step, idx_left, 0] = -trajectory_heparansulfate[step, idx_left, 0]
-            
-            idx_left = np.where(trajectory_chemokine_heparansulfate[step, :n_particles_chemokine_heparansulfate, 0] < 0)[0]
-            trajectory_chemokine_heparansulfate[step, idx_left, 0] = -trajectory_chemokine_heparansulfate[step, idx_left, 0]
-            
-            # right wall
-            idx_right = np.where(trajectory_chemokine[step, :n_particles_chemokine, 0] > grid_size[0])[0]
-            trajectory_chemokine[step, idx_right, 0] = 2*grid_size[0] - trajectory_chemokine[step, idx_right, 0]
-            
-            idx_right = np.where(trajectory_netrin[step, :n_particles_netrin, 0] > grid_size[0])[0]
-            trajectory_netrin[step, idx_right, 0] = 2*grid_size[0] - trajectory_netrin[step, idx_right, 0]
-            
-            idx_right = np.where(trajectory_chemokine_netrin[step, :n_particles_chemokine_netrin, 0] > grid_size[0])[0]
-            trajectory_chemokine_netrin[step, idx_right, 0] = 2*grid_size[0] - trajectory_chemokine_netrin[step, idx_right, 0]
-            
-            idx_right = np.where(trajectory_heparansulfate[step, :n_particles_heparansulfate, 0] > grid_size[0])[0]
-            trajectory_heparansulfate[step, idx_right, 0] = 2*grid_size[0] - trajectory_heparansulfate[step, idx_right, 0]
-            
-            idx_right = np.where(trajectory_chemokine_heparansulfate[step, :n_particles_chemokine_heparansulfate, 0] > grid_size[0])[0]
-            trajectory_chemokine_heparansulfate[step, idx_right, 0] = 2*grid_size[0] - trajectory_chemokine_heparansulfate[step, idx_right, 0]
-        
-        
-        # pbc
-        for i in range(2):
-            trajectory_chemokine[step, :n_particles_chemokine, i] = np.mod(trajectory_chemokine[step, :n_particles_chemokine, i], grid_size[i])
-            trajectory_netrin[step, :n_particles_netrin, i] = np.mod(trajectory_netrin[step, :n_particles_netrin, i], grid_size[i])
-            trajectory_chemokine_netrin[step, :n_particles_chemokine_netrin, i] = np.mod(trajectory_chemokine_netrin[step, :n_particles_chemokine_netrin, i], grid_size[i])
-            trajectory_heparansulfate[step, :n_particles_heparansulfate, i] = np.mod(trajectory_heparansulfate[step, :n_particles_heparansulfate, i], grid_size[i])
-            trajectory_chemokine_heparansulfate[step, :n_particles_chemokine_heparansulfate, i] = np.mod(trajectory_chemokine_heparansulfate[step, :n_particles_chemokine_heparansulfate, i], grid_size[i])
-
-        
-        
-        # do not move fixed particles
-        # TODO this falls apart once the particles are allowed to split again
-        if idx_fixed.shape[0] > 0:
-            trajectory_chemokine_netrin[step, idx_fixed] = np.copy(pos_fixed)
-        
-        # save new frame to pos
-        pos_chemokine = np.copy(trajectory_chemokine[step])
-        pos_netrin = np.copy(trajectory_netrin[step])
-        pos_chemokine_netrin = np.copy(trajectory_chemokine_netrin[step])
-        pos_heparansulfate = np.copy(trajectory_heparansulfate[step])
-        pos_chemokine_heparansulfate = np.copy(trajectory_chemokine_heparansulfate[step])
-        
-        # check if any chemokine-netrin complexes are bonded to collagen
-        idx_fixed = np.where(pos_chemokine_netrin[:, 1] == collagen_y)[0]
-        pos_fixed = pos_chemokine_netrin[idx_fixed]
-        
-    return trajectory_chemokine, trajectory_netrin, trajectory_heparansulfate, trajectory_chemokine_netrin,  trajectory_chemokine_heparansulfate
-
-
-
-# test 
-
-
-# # initial_positions = np.array([[0, 0],[1, 5],[4, 2],[0, 0],[6, 4],[6, 6],[9, 9]])
-# # particle_types = np.array([0, 0, 0, 1, 1, 1, 1])
-# grid_size = [300, 80]
-# n_steps = 15*10
-# n_particles = 300 # 0.7
-# particle_types = np.random.choice([0, 1, 2], size=(n_particles), p=[0.66, 0.34, 0])
-# particle_diffusivity = [3, 2, 1, 0.05, 0.03]
-# c_heparansulfate = 0.03
-
-
-# pos_0, pos_1, pos_2, pos_3, pos_4 = monte_carlo_simulation(num_steps = n_steps,
-#                                                            grid_size = grid_size,
-#                                                            particle_diffusivity=particle_diffusivity,
-#                                                            n_particles = n_particles,
-#                                                            fraction_x=0.3,
-#                                                            c_heparansulfate=c_heparansulfate,
-#                                                            reflection=True,
-#                                                            particle_types=particle_types)
-
-# print("results:")
-# for i in range(n_steps):
-#     print(i)
-#     print(pos_0[i])
-#     print(pos_1[i])
-#     print(pos_2[i])
-#     print("\n")
-
-
-# ---------------------------
-#         ANIMATION
-# ---------------------------
-
-
-
-# collagen_y = np.round(grid_size[1]/2)
-
-# fig, ax = plt.subplots()
-# fig.set_figwidth(grid_size[0]/max(grid_size)*20)
-# fig.set_figheight(grid_size[1]/max(grid_size)*20)
-
-# box = ax.get_position()
-
-# marker_scale = 1
-
-# plot_edge = 4
-# def update(i):
-    
-#     #clear the frame
-#     ax.clear()
-    
-#     ax.axhspan(collagen_y-1, collagen_y+1, alpha=0.3, color="red", label="Collagen fiber")
-    
-#     ax.scatter(*pos_2[i].T, label="Heparansulfate",           color="grey",   marker=r"$\sim$",    s=150*marker_scale)
-#     ax.scatter(*pos_4[i].T, label="Chemokine-Heparansulfate", color="purple", marker="+",          s=80*marker_scale)
-#     ax.scatter(*pos_0[i].T, label="Chemokine",                color="blue",                        s=80*marker_scale)
-#     ax.scatter(*pos_1[i].T, label="Netrin",                   color="red",    marker=r"--$\cdot$", s=250*marker_scale)
-#     ax.scatter(*pos_3[i].T, label="Chemokine-Netrin",         color="green",                       s=90*marker_scale)
-    
-
-#     ax.set_xlim(-plot_edge, grid_size[0]+plot_edge)    
-#     ax.set_ylim(-plot_edge, grid_size[1]+plot_edge)
-    
-#     ax.plot([0, grid_size[0]], [0, 0],                       "--", color="black")
-#     ax.plot([grid_size[0], 0], [grid_size[1], grid_size[1]], "--", color="black")
-#     ax.plot([grid_size[0],  grid_size[0]], [0, grid_size[1]],      color="black")
-#     ax.plot([0, 0], [grid_size[1], 0],                             color="black")
-    
-    
-#     # draw legend outside of the plot
-    
-#     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
-    
-#     ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-#     #draw frame
-#     plt.draw()
-#     #pause to show the frame
-#     #plt.pause(0.05)
-    
-# anim = FuncAnimation(fig, update, frames=n_steps, repeat=False)
-
-# #plt.show()
-
-# print('saving animation...')
-# anim.save('movies/sim_with_netrin_test.mp4', fps=15)#, writer='pillow')
-# print('done')
+    fh5.close()
+    #return trajectory
+    #return                

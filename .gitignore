@@ -1,4 +1,8 @@
 movies/
+plots/
+trajectories/
+monte_carlo_chemokine_test.py
+monte_carlo_chemokine_old.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

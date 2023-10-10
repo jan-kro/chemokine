@@ -4,17 +4,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-def animate(traj_chemokine:                np.ndarray,
-            traj_netrin:                   np.ndarray,
-            traj_heparansulfate:           np.ndarray,
-            traj_chemokine_netrin:         np.ndarray,
-            traj_chemokine_heparansulfate: np.ndarray,
-            grid_size:                     np.ndarray,
+def animate(trajectory:                    np.ndarray,
             show:                          bool        = True,
             save:                          bool        = False,
             fname:                         str         = None,
             fps:                           int         = 15,
-            collagen_y:                    int         = None,
             marker_scale:                  float       = 1.0,
             plot_edge:                     int         = 5):
     """
@@ -22,11 +16,9 @@ def animate(traj_chemokine:                np.ndarray,
     
     Parameters
     ----------
-    traj_<particle_type> : np.ndarray
-        Trajectory of the particles of shape (n_steps, n_particles, 2).
-    grid_size : np.ndarray
-        Size of the grid with shape (2,).
-    show : bool, optional
+    traj : np.ndarray
+        Trajectory of the particles of shape (n_steps, L_x, L_y).
+    show : bool, optional 
         Show the animation, by default True
     save : bool, optional
         Save the animation, by default False
@@ -34,25 +26,13 @@ def animate(traj_chemokine:                np.ndarray,
         Filename of the animation, by default file gets saved in ./figures with timestamp
     fps : int, optional
         Frames per second, by default 15
-    collagen_y : int, optional
-        y-value of the collagen fiber, by default center of the grid
     marker_scale : float, optional
         scales the markers in case they are to big or to small
     plot_edge : int, optional
         edge around the grid, that is included in the plot, by default 5 grid steps
     """
-    
-    pos_0 = traj_chemokine
-    pos_1 = traj_netrin
-    pos_2 = traj_chemokine_netrin
-    pos_3 = traj_heparansulfate
-    pos_4 = traj_chemokine_heparansulfate
-    
-    n_steps = len(pos_0)
-    
-    if collagen_y is None:
-        # if y-vallue of the collagen fiber is not given, set it to the middle of the grid
-        collagen_y = np.round(grid_size[1]/2)
+    n_steps = trajectory.shape[0]
+    grid_size = trajectory[0].shape
 
     fig, ax = plt.subplots()
     fig.set_figwidth(grid_size[0]/max(grid_size)*20)
@@ -65,13 +45,14 @@ def animate(traj_chemokine:                np.ndarray,
         #clear the frame
         ax.clear()
         
-        ax.axhspan(collagen_y-1, collagen_y+1, alpha=0.3, color="red", label="Collagen fiber")
-        
-        ax.scatter(*pos_3[i].T, label="Heparansulfate",           color="grey",   marker=r"$\sim$",    s=150*marker_scale)
-        ax.scatter(*pos_4[i].T, label="Chemokine-Heparansulfate", color="purple", marker="+",          s=80*marker_scale)
-        ax.scatter(*pos_0[i].T, label="Chemokine",                color="blue",                        s=80*marker_scale)
-        ax.scatter(*pos_1[i].T, label="Netrin",                   color="red",    marker=r"--$\cdot$", s=250*marker_scale)
-        ax.scatter(*pos_2[i].T, label="Chemokine-Netrin",         color="green",                       s=90*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 3), label="Heparansulfate",           color="grey",   marker=r"$\sim$",    s=150*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 5), label="Chemokine-Heparansulfate", color="purple", marker="+",          s=80*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 1), label="Chemokine",                color="blue",                        s=80*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 2), label="Netrin",                   color="red",    marker=r"--$\cdot$", s=250*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 4), label="Chemokine-Netrin",         color="green",                       s=90*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 6), label="Collagen Sites",           color="k",      marker="x",          s=90*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 7), label="CN Collagen Sites",           color="k",      marker="o",          s=90*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 8), label="N Collagen Sites",           color="k",      marker="*",          s=90*marker_scale)
         
 
         ax.set_xlim(-plot_edge, grid_size[0]+plot_edge)    
