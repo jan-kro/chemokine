@@ -3,21 +3,25 @@ import numpy as np
 
 # the indexing of the concentrations, diffusivities and energies has to be always in the same order, i.e. concentrations=[c1, c2, ...] then diffusivitiy_array=[D1, D2, ...]
 # function that takesin the matrix containing all binding energies in kbT and diffusivities in [m^2/s] and outputs the ratio of time step to grid constant squared Delta/a^2
-def calc_time_step_ratio(energy_matrix, diffusivity_array):
+def calc_time_step_ratio(energy_matrix, diffusivity_array, only_diff=False):
     # compute ratio of time step to grid constant squared Delta/a^2 by setting the maximum movement probability to be 1/4
     if len(diffusivity_array) != len(energy_matrix):
         print("Error: length of diffusivity array must be the same as the number of rows in the energy matrix")
         return
-    max_dexp2 = 0 # initialize maximum product of diffusivity with exp(energy)
-    for i in range(len(energy_matrix)):
-        for j in range(i + 1, len(energy_matrix)):
-            if np.exp(energy_matrix[i, j]) * diffusivity_array[j] > max_dexp2:
-                max_dexp2 = np.exp(energy_matrix[i, j]) * diffusivity_array[j] # maximum of occuring product
+    if only_diff:
+        ratio = 1 / (5 * np.max(diffusivity_array))
+    else:
+        max_dexp2 = 0 # initialize maximum product of diffusivity with exp(energy)
+        for i in range(len(energy_matrix)):
+            for j in range(i + 1, len(energy_matrix)):
+                if np.exp(energy_matrix[i, j]) * diffusivity_array[j] > max_dexp2:
+                    max_dexp2 = np.exp(energy_matrix[i, j]) * diffusivity_array[j] # maximum of occuring product
 
-    max_dexp = np.max(diffusivity_array * np.exp(energy_matrix))
-    max_tot = np.max([max_dexp, max_dexp2]) # if all binding energies are negative, moving probability is higher for pure diffusion
-    ratio = 1 / (5 * max_tot)
+        max_dexp = np.max(diffusivity_array * np.exp(energy_matrix))
+        max_tot = np.max([max_dexp, max_dexp2]) # if all binding energies are negative, moving probability is higher for pure diffusion
+        ratio = 1 / (5 * max_tot)
     return ratio
+
 
 
 # function that takes  thye ratio of time step to grid constant squared Delta/a^2 in [s/m^2] and a diffusivity in [m^2/s] and returns the probability of a particle to move in one direction and the probability to stay in the same position
@@ -28,8 +32,8 @@ def calc_probabilities_free(ratio, diffusivity_array):
 
 
 # function computes moving probability in one direction with a neighbor present in this direction
-def calc_probabilities_with_neighbor(energy_matrix, diffusivity_array):
-    ratio = calc_time_step_ratio(energy_matrix, diffusivity_array)
+def calc_probabilities_with_neighbor(energy_matrix, diffusivity_array, only_diff=False):
+    ratio = calc_time_step_ratio(energy_matrix, diffusivity_array, only_diff=only_diff)
     p_move_free = calc_probabilities_free(ratio, diffusivity_array)[0]
     p_move_neighbor = np.zeros(int(len(energy_matrix) * (len(energy_matrix) - 1) / 2))
     # one could make a matrix in the shape of energy_matrix, but i+j-1 is also unique
