@@ -8,6 +8,10 @@ def plot_grid(positions,
               save: bool = True,
               fname: str = None):
     
+    
+    # import background image of collagen fiber
+    # img = plt.imread("collagen_fiber.png")
+    
     grid_size = positions.shape
         
     fig, ax = plt.subplots()
@@ -22,6 +26,7 @@ def plot_grid(positions,
 
     ax.clear()
 
+    #ax.imshow(img, extent=[0, grid_size[0], 0, grid_size[1])
 
     ax.scatter(*np.where(positions == 3), label="Heparansulfate",           color="grey",   marker=r"$\sim$",    s=150*marker_scale)
     ax.scatter(*np.where(positions == 5), label="Chemokine-Heparansulfate", color="purple", marker="+",          s=80*marker_scale)

@@ -1,8 +1,7 @@
 import numpy as np
-from plot_grid import plot_grid
 
 def get_initial_positions(grid_size:        np.ndarray = [300, 100],
-                          concentrations:   np.ndarray = [0.5,   # empty grid site
+                          concentrations:   np.ndarray = [0.0,   # empty grid site (unused because of normalization)
                                                           0.05,  # chemokine
                                                           0.05,  # netrin
                                                           0.2,   # heparansulfate
@@ -33,6 +32,14 @@ def get_initial_positions(grid_size:        np.ndarray = [300, 100],
         concentrations of the particles for the specified regions.
         The first entry is the concentration of empty grid sites.
         the concentration of the empty grid size is used to normalize the other concentrations.
+    regions_fraction : np.ndarray, optional
+        the regions in which the particles are distributed.
+        the concentrations refer to these regions, NOT the whole grid.
+        
+    Returns
+    -------
+    np.ndarray
+        initial configuration of the particles 
     '''
     
     initial_positions = np.zeros(grid_size, dtype=int)
@@ -52,6 +59,8 @@ def get_initial_positions(grid_size:        np.ndarray = [300, 100],
     idx_regions = np.zeros_like(regions_fraction, dtype=int)
     
     for i in range(len(regions_fraction)):
+        assert regions_fraction[i][0][0] >= 0 and regions_fraction[i][0][1] <= 1, 'x region is not valid'
+        assert regions_fraction[i][1][0] >= 0 and regions_fraction[i][1][1] <= 1, 'y region is not valid'
         assert regions_fraction[i][0][0] <= regions_fraction[i][0][1], 'x region is not valid'
         assert regions_fraction[i][1][0] <= regions_fraction[i][1][1], 'y region is not valid'
         

@@ -1,18 +1,26 @@
-from monte_carlo_chemokine import monte_carlo_simulation as mcc
+#from monte_carlo_chemokine_test import monte_carlo_simulation as simulate
+#from monte_carlo_chemokine import monte_carlo_simulation as simulate
+from grid_simulation import simulate
 from animation import animate
 from plot_grid import plot_grid
 from initial_position import get_initial_positions
 from datetime import datetime
 import numpy as np
 import physical_units_diffusion as pud
+import h5py
 import os 
 
-outdir = "/net/storage/janmak98/chemokine/output"
+outdir = "/local_scratch2/janmak98/chemokine/results/tests"
 
 now = datetime.now().strftime("%Y-%m-%d_%Hh-%Mm-%Ss")
+now = "test_grid"
 fname_movies = os.path.join(outdir, 'movies', 'sim_'+now+'.mp4')
-fname_traj = os.path.join(outdir, 'trajectories', 'traj_'+now+'.npy')
+fname_traj = os.path.join(outdir, 'trajectories', 'traj_'+now+'.hdf5')
 fname_figures = os.path.join(outdir, 'figures', 'sim_'+now+'.png')
+
+for fname in [fname_movies, fname_traj, fname_figures]:
+    if not os.path.exists(os.path.dirname(fname)):
+        os.makedirs(os.path.dirname(fname))
 
 simulation_stride = 1
 animation_stride = 30
@@ -23,15 +31,15 @@ grid_size = [180, 60]
 # CALCULATE PHYSICAL UNITS
 
 molecule_mass = [
-        1e20, # empty grid site
-        15.77, # kDa (CCL5) https://www.rcsb.org/structure/5COY
-        50.63, # kDa (Netrin-1) https://www.rcsb.org/structure/4OVE
-        500, # kDa (heperansulfate) made up
-        15.77 + 50.63,
-        500 + 50.63,
-        1e20,
-        1e20,
-        1e20
+    1e20, # empty grid site
+    15.77, # kDa (CCL5) https://www.rcsb.org/structure/5COY
+    50.63, # kDa (Netrin-1) https://www.rcsb.org/structure/4OVE
+    500, # kDa (heperansulfate) made up
+    15.77 + 50.63,
+    500 + 50.63,
+    1e20,
+    1e20,
+    1e20
 ]
 
 diffusivities = pud.estimate_diffusivity(np.array(molecule_mass))
@@ -59,13 +67,13 @@ diffusion_probability, p_stay = pud.calc_probabilities_free(ratio, diffusivities
 
 # check if diffusion probailities are too big
 for i in range(9):
-        for j in range(9):
-                if np.any(diffusion_probability/binding_probability[i, j] > 0.25) and binding_probability[i, j] != 0:
-                        print('Diffusion probabilities too big', i, j)
-                        print(diffusion_probability/binding_probability[i, j])
-                        L = diffusion_probability/binding_probability[i, j] > 0.25
-                        print(diffusion_probability[L])
-                        print(binding_probability[i, j])
+    for j in range(9):
+        if np.any(diffusion_probability/binding_probability[i, j] > 0.25) and binding_probability[i, j] != 0:
+            print('Diffusion probabilities too big', i, j)
+            print(diffusion_probability/binding_probability[i, j])
+            L = diffusion_probability/binding_probability[i, j] > 0.25
+            print(diffusion_probability[L])
+            print(binding_probability[i, j])
 
 
 # set up initial configuration
@@ -97,15 +105,15 @@ plot_grid(initial_positions,
           save = True,
           fname = fname_figures)
 
-mcc(num_steps = num_steps, 
-    initial_positions = initial_positions,
-    diffusion_probability = diffusion_probability, 
-    binding_probability = binding_probability,
-    reflection_x = True,
-    stride=simulation_stride, 
-    fname_traj=fname_traj)
+simulate(num_steps = num_steps, 
+         initial_positions = initial_positions,
+         move_probability = diffusion_probability, 
+         binding_probability = binding_probability,
+         reflection_x = True,
+         stride=simulation_stride, 
+         fname_traj=fname_traj)
 
-# np.save(fname_traj, traj)
+traj = h5py.File(fname_traj, 'r')['trajectory']
 
 # animate(traj[::animation_stride],
 #         show = False,
