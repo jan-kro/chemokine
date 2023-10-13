@@ -4,6 +4,9 @@ trajectories/
 monte_carlo_chemokine_test.py
 monte_carlo_chemokine_old.py
 
+# vscode
+.vscode
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
