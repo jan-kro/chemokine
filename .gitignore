@@ -3,6 +3,8 @@ plots/
 trajectories/
 monte_carlo_chemokine_test.py
 monte_carlo_chemokine_old.py
+*_test.py
+*_test.ipynb
 
 # vscode
 .vscode
