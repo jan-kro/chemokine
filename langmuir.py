@@ -16,7 +16,7 @@ This script simulates the system for different concentrations of netrin-1, while
 The particles are distributed uniformly in the grid, and the simulation is run for 10000 steps.
 """
 
-outdir_traj = "/local_scratch2/janmak98/chemokine/results/langmuir_complete_new/trajectories"
+outdir_traj = "/local_scratch2/janmak98/chemokine/results/gradient/trajectories"
 indir_traj = "/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale/trajectories"
 
 fnames_indir = []
@@ -39,12 +39,12 @@ if not os.path.exists(outdir_traj):
     os.makedirs(outdir_traj)
     
 netrin_concentrations = np.logspace(-3, np.log10(0.15), 20)
-#netrin_concentrations = np.array([0, 0.05, 0.1, 0.2])
+netrin_concentrations = np.array([0, 0.05, 0.1, 0.2])
 
 
-simulation_stride = 10
+simulation_stride = 20
 animation_stride = 30
-num_steps = 100000
+num_steps = 500000
 grid_size = [180, 60]
 
 # pNC = 69.07 # bonding probability Chemokine-Netrin
@@ -84,10 +84,10 @@ for kk, netrin_concentration in enumerate(netrin_concentrations):
         0,                        # empty grid site
         chemokine_concentration,  # 0.07,  # chemokine
         netrin_concentration,     # netrin
-        0.0,                     # 0.15 # heparansulfate
+        0.15,                     # 0.15 # heparansulfate
         cn_complex_concentration, # chemokine-netrin
         0.0,                      # chemokine-heparansulfate
-        0.0,                      # 0.2 # collagen site
+        0.2,                      # 0.2 # collagen site
         0.0,                      # chemokine-netrin-collagen
         0.0                       # netrin-collagen
     ]
@@ -95,8 +95,8 @@ for kk, netrin_concentration in enumerate(netrin_concentrations):
     
     regions_fraction = [
         [[0,1],[0,1]],       # empty grid site
-        [[0,1],[0,1]],       # chemokine
-        [[0,1],[0,1]],       # netrin
+        [[0,0.2],[0,1]],       # chemokine
+        [[0,0.2],[0,1]],       # netrin
         [[0,1],[0,1]],       # heparansulfate
         [[0,1],[0,1]],       # chemokine-netrin
         [[0,1],[0,1]],       # chemokine-heparansulfate
@@ -148,7 +148,7 @@ for kk, netrin_concentration in enumerate(netrin_concentrations):
     diffusion_probability, p_stay = pud.calc_probabilities_free(ratio, diffusivities)
 
     diffusion_probability = diffusion_probability/np.max(diffusion_probability)/4
-
+    
     # check if probabilities fit
     # for i in range(9):
     #     for j in range(9):                
