@@ -1,22 +1,20 @@
-from grid_simulation_test import simulate
-from utils import animate, get_fname
-import toml
-import h5py
+from grid_simulation import simulate
+import utils
 import sys
 
 name_system = sys.argv[1] 
 dir_system = sys.argv[2]
 
-fname_config = get_fname(dir_system, name_system, ftype="config")
+fname_config = utils.get_fname(dir_system, name_system, ftype="config")
 
-with open(fname_config, "r") as f:
-    config = toml.load(f)
+
+config = utils.load_config_dict(fname_config)
 
 simulate(config)
 
 print("\nsimulation finished")
-print(f"Name:      {name_system}")
-print(f"Directory: {dir_system}")
+print(f"Name:      {config['name_sys']}")
+print(f"Directory: {config['dir_sys']}")
 
 # fname_traj = get_fname(dir_system, name_system, ftype="trajectory")
 

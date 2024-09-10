@@ -2,8 +2,11 @@ from matplotlib.animation import FuncAnimation
 from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
+import ffmpeg
 import toml
 import os
+
+#! TODO create FileType class to avoid plain text in file creation etc...
 
 
 def calc_time_step_ratio(energy_matrix: np.ndarray, diffusivity_array: np.ndarray, only_diff: bool=False):
@@ -127,7 +130,7 @@ def calc_nspecies_gridconst(ratio: float, concentrations: np.ndarray, n_min : in
     time_step : float
         Time step in [s].
     """
-    a_grid = (n_min / ((grid_dim[0] - 1) * (grid_dim[1] - 1) * np.min(concentrations) * 6.022e26)) ** (1/3)
+    a_grid = (n_min / ((grid_dim[0]) * (grid_dim[1]) * np.min(concentrations) * 6.022e26)) ** (1/3)
     n_species = np.int64(n_min * concentrations / np.min(concentrations))
     time_step = ratio * a_grid**2
     return n_species, a_grid, time_step
@@ -156,7 +159,7 @@ def estimate_diffusivity(mass):
     return D
 
 
-def physical_concentration(n_species: np.ndarray, grid_dim: tuple, a_grid: float):
+def get_physical_concentration(n_species: np.ndarray, grid_dim: tuple, a_grid: float):
     """
     Calculate physical concentration in [mol/l] for given number of n_species particles in given grid.
     
@@ -174,8 +177,34 @@ def physical_concentration(n_species: np.ndarray, grid_dim: tuple, a_grid: float
     concentration : np.ndarray
         Physical concentration in [mol/l] for every particle type.
     """
-    concentration = n_species / ((grid_dim[0] - 1) * (grid_dim[1] - 1) * a_grid**3 * 6.022e26)
+    concentration = n_species / (grid_dim[0] * grid_dim[1] * a_grid**3 * 6.022e26)
     return concentration
+
+def get_grid_constant(n_particles: np.ndarray, concentration: np.ndarray, grid_dim: tuple):
+    """
+    calcualte the grid constant of a system of given number of particles for a grid of grid_dim[0]*grid_dim[1] sites,
+    with a desired physical particle concentration.
+    
+    Parameters
+    ----------
+    n_particles : int
+        Number of particles of desired particle type.
+    concentration : float
+        Physical concentration of desired particle type in [mol/l].
+    grid_dim : tuple
+        Tuple of integers containing the dimensions of the grid in an ndarray.shape like fashion.
+        
+    Returns
+    -------
+    a_grid : float
+        Grid constant in [m].
+    """
+
+    a_grid = (n_particles / ((grid_dim[0]) * (grid_dim[1]) * concentration * 6.022e26)) ** (1/3)
+    return a_grid
+    
+    
+    
 
 
 def animate(trajectory:                    np.ndarray,
@@ -208,14 +237,18 @@ def animate(trajectory:                    np.ndarray,
         edge around the grid, that is included in the plot, by default 5 grid steps
     """
     
+    # Chemokine: green_Hex color # 00A200
+    # Netrin-1: red_Hex color # FF0000
+    # Chemokine + netrin-1_Hex color # FF00FF
+    
     if particle_names==None:
         particle_names =[
             "empty site",
             "CCL5",
             "Net-1",
-            "Heperin",
+            "Heperansulfate",
             "CCL5-Net-1",
-            "CCL5-Heperin",
+            "CCL5-Heperansulfate",
             "Collagen Site",
             "CCL5-Net-1-Collagen",
             "Net-1-Collagen"
@@ -224,7 +257,10 @@ def animate(trajectory:                    np.ndarray,
     n_steps = trajectory.shape[0]
     grid_size = trajectory[0].shape
 
-    fig, ax = plt.subplots()
+    # import background image of collagen fiber
+    img = plt.imread("images/collagen_fiber_long.png")
+    
+    fig, ax = plt.subplots(dpi=300)
     fig.set_figwidth(grid_size[0]/max(grid_size)*20)
     fig.set_figheight(grid_size[1]/max(grid_size)*20)
 
@@ -235,14 +271,16 @@ def animate(trajectory:                    np.ndarray,
         #clear the frame
         ax.clear()
         
-        ax.scatter(*np.where(trajectory[i] == 1), label=particle_names[1], color="blue",                        s=80*marker_scale)
-        ax.scatter(*np.where(trajectory[i] == 2), label=particle_names[2], color="red",    marker=r"--$\cdot$", s=250*marker_scale)
-        ax.scatter(*np.where(trajectory[i] == 3), label=particle_names[3], color="grey",   marker=r"$\sim$",    s=150*marker_scale)
-        ax.scatter(*np.where(trajectory[i] == 4), label=particle_names[4], color="green",                       s=90*marker_scale)
-        ax.scatter(*np.where(trajectory[i] == 5), label=particle_names[5], color="purple", marker="+",          s=80*marker_scale)
-        ax.scatter(*np.where(trajectory[i] == 6), label=particle_names[6], color="k",      marker="x",          s=90*marker_scale)
-        ax.scatter(*np.where(trajectory[i] == 7), label=particle_names[7], color="k",      marker="o",          s=90*marker_scale)
-        ax.scatter(*np.where(trajectory[i] == 8), label=particle_names[8], color="k",      marker="*",          s=90*marker_scale)
+        ax.imshow(img, extent=[0, grid_size[0], 0, grid_size[1]])
+        
+        ax.scatter(*np.where(trajectory[i] == 1), label=particle_names[1], color="#00A200",                      s=80*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 2), label=particle_names[2], color="#FF0000", marker=r"--$\cdot$", s=250*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 3), label=particle_names[3], color="grey",    marker=r"$\sim$",    s=150*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 4), label=particle_names[4], color="#FF00FF",                      s=90*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 5), label=particle_names[5], color="purple",  marker="+",          s=80*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 6), label=particle_names[6], color="k",       marker="x",          s=90*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 7), label=particle_names[7], color="k",       marker="o",          s=90*marker_scale)
+        ax.scatter(*np.where(trajectory[i] == 8), label=particle_names[8], color="k",       marker="*",          s=90*marker_scale)
         
 
         ax.set_xlim(-plot_edge, grid_size[0]+plot_edge)    
@@ -276,12 +314,59 @@ def animate(trajectory:                    np.ndarray,
         print(f'saving animation (fps = {fps:d}) ...')
         anim.save(fname, fps=fps)
         print(f'animation saved at {fname}.')
-        
-def plot_grid(positions,
-              particle_names: list = None,
-              show: bool = True,
-              save: bool = True,
-              fname: str = None):
+
+def animate_ffmpeg(
+    trajectory,
+    particle_names:   list        = None,
+    fname:            str         = None,
+    fps_in:           int         = 15,
+    fps_out:          int         = 30,
+    marker_scale:     float       = 1.0,
+    plot_edge:        int         = 5,
+    show_collagen:    bool        = True):
+    
+    n_frames = trajectory.shape[0]
+
+    if not fname.endswith(".mp4"):
+        raise ValueError("Filename must end with .mp4")
+    
+    print(f"Creating animation at {fname} ...")
+    
+    print("Saving individual frames ...")
+    # save individual frames
+    for i in range(n_frames):
+        fname_frame = fname.replace(".mp4", "_frame") + str(i) + ".png"
+        plot_grid(
+            trajectory[i], 
+            show=False, 
+            save=True, 
+            show_collagen=show_collagen, 
+            fname=fname_frame, 
+            particle_names=particle_names, 
+            plot_edge=plot_edge, 
+            marker_scale=marker_scale
+        )
+    
+    print("Converting frames to video ...")
+    # convert to video
+    ffmpeg.input(fname.replace(".mp4", "_frame") + "%d.png", framerate=fps_in).output(fname, framerate=fps_out, loglevel="warning").run()
+
+    print("Deleting individual frames ...")
+    # delete frames
+    for i in range(n_frames):
+        os.remove(fname.replace(".mp4", "_frame") + str(i) + ".png")
+    
+    print("Done.")
+    
+def plot_grid(
+    positions,
+    particle_names: list  = None,
+    show:           bool  = True,
+    save:           bool  = True,
+    fname:          str   = None,
+    show_collagen:  bool  = True,
+    marker_scale:   float = 1.0,
+    plot_edge:      float = 4.0):
     """
     Plots the positions of the particles in the grid. Saves plot as png file if specified.
     
@@ -298,18 +383,17 @@ def plot_grid(positions,
         Filename must end with .png
     """
     
-    # todo
     # import background image of collagen fiber
-    # img = plt.imread("collagen_fiber.png")
+    img = plt.imread("images/collagen_fiber_long.png")
     
     if particle_names==None:
         particle_names =[
             "empty site",
             "CCL5",
             "Net-1",
-            "Heperin",
+            "Heperansulfate",
             "CCL5-Net-1",
-            "CCL5-Heperin",
+            "CCL5-Heperansulfate",
             "Collagen Site",
             "CCL5-Net-1-Collagen",
             "Net-1-Collagen"
@@ -323,22 +407,19 @@ def plot_grid(positions,
 
     box = ax.get_position()
 
-    marker_scale = 1
- 
-    plot_edge = 4
-
     ax.clear()
 
-    #ax.imshow(img, extent=[0, grid_size[0], 0, grid_size[1])
+    if show_collagen:
+        ax.imshow(img, extent=[0, grid_size[0], 0, grid_size[1]])
 
-    ax.scatter(*np.where(positions == 1), label=particle_names[1], color="blue",                        s=80*marker_scale)
-    ax.scatter(*np.where(positions == 2), label=particle_names[2], color="red",    marker=r"--$\cdot$", s=250*marker_scale)
-    ax.scatter(*np.where(positions == 3), label=particle_names[3], color="grey",   marker=r"$\sim$",    s=150*marker_scale)
-    ax.scatter(*np.where(positions == 4), label=particle_names[4], color="green",                       s=90*marker_scale)
-    ax.scatter(*np.where(positions == 5), label=particle_names[5], color="purple", marker="+",          s=80*marker_scale)
-    ax.scatter(*np.where(positions == 6), label=particle_names[6], color="k",      marker="x",          s=90*marker_scale)
-    ax.scatter(*np.where(positions == 7), label=particle_names[7], color="k",      marker="o",          s=90*marker_scale)
-    ax.scatter(*np.where(positions == 8), label=particle_names[8], color="k",      marker="*",          s=90*marker_scale)
+    ax.scatter(*np.where(positions == 1), label=particle_names[1], color="#00A200",                      s=80*marker_scale)
+    ax.scatter(*np.where(positions == 2), label=particle_names[2], color="#FF0000", marker=r"--$\cdot$", s=250*marker_scale)
+    ax.scatter(*np.where(positions == 3), label=particle_names[3], color="grey",    marker=r"$\sim$",    s=150*marker_scale)
+    ax.scatter(*np.where(positions == 4), label=particle_names[4], color="#FF00FF",                      s=90*marker_scale)
+    ax.scatter(*np.where(positions == 5), label=particle_names[5], color="purple",  marker="+",          s=80*marker_scale)
+    ax.scatter(*np.where(positions == 6), label=particle_names[6], color="k",       marker="x",          s=90*marker_scale)
+    ax.scatter(*np.where(positions == 7), label=particle_names[7], color="k",       marker="o",          s=90*marker_scale)
+    ax.scatter(*np.where(positions == 8), label=particle_names[8], color="k",       marker="*",          s=90*marker_scale)
 
     ax.set_xlim(-plot_edge, grid_size[0]+plot_edge)    
     ax.set_ylim(-plot_edge, grid_size[1]+plot_edge)
@@ -362,29 +443,67 @@ def plot_grid(positions,
             now = datetime.now().strftime("%Y-%m-%d_%Hh-%Mm-%Ss")
             fname = os.path.join(os.getcwd(), 'plots', 'plot_'+now+'.png')
         plt.savefig(fname)
-        print(f'plot saved at {fname}.')
+        #print(f'plot saved at {fname}.')
+    plt.close()
         
-        
-def get_parameters_dict(fname: str):
+
+def load_config_dict(fname: str):
     """
-    Retruns the simulation parameters as dictionary from a toml file.
-    The parameters include:
+    Retruns the simulation config as dictionary from a toml file.
+    The lists in the config are converted to numpy arrays with the respective dtype.
+    The config keys include:
     
-    - comment: str
+    comment: str
         Comment string for the simulation.
-    - num_steps: int
-        Number of simulation steps.
-    - reflection_x: bool
-        If True, particles are reflected at the x boundaries.
-    - fname_traj: str
-        Filename of the trajectory file.
-    - move_probability : np.ndarray
-        Probability of every particle to move one step in one direction.
-    - binding_probability : np.ndarray
-        Probability of every particle to bind to another particle.
-    - initial_positions : np.ndarray
-        Initial positions of the particles.
-    
+        Can contain any information about the simulation.
+    num_steps : int
+        number of steps the simulation should run
+    stride : int
+        the trajectory is saved every stride steps
+    reflection : tuple
+        tuple of booleans with len=4 determining at which walls the particles are reflected
+        the order is [x0 x1 y0 y1] i.e. left, right, up, down
+    particle_names : list
+        list of strings containing the names of the particles in the same order as the particle types
+    initial_positions : np.ndarray
+        2d array of the initial postitions of the particles with shape (N_sites_x, N_sites_y)
+        The array consists of N different integer values, where N is the number of particle types.
+        Empty grid sites are also particle types.
+        Example: init_pos[3, 7] = 1 means that there is a particle of type 1 at position x=3, y=7
+    bond_possible : np.ndarray
+        2d array of booleans with shape (N_types, N_types) determining if two particles can bind
+        The first index is the particle that wants to bind and the second index is the particle that it will bind to
+        a simple diffusion is also treated as a bond, where the particle binds to an empty grid site
+    unbond_possible : np.ndarray
+        2d array of booleans with shape (N_types, N_types) determining if two particles can unbind
+        The first index is the particle that wants to break its bond and the second index is the particle that it will unbind to.
+        A particle can unbind twards an empty grid site or towards another particle, which can bond with one of the unbonded particles.
+    bond_idx : np.ndarray
+        3d array of shape (N_types, N_types, 2) containing the tags of the new particles after a bond
+        The first index is the particle that wants to bind and the second index is the particle that it will bind to
+        The third index is the tag of the two particles after the bond
+        If the particle bonds to an empty grid site, the first index of the resulting types is zero 
+    unbond_idx : np.ndarray
+        3d array of shape (N_types, N_types, 2) containing the tags of the new particles after an unbond
+        The first index is the particle that wants to unbind and the second index is the particle that it will unbind to
+        The third index is the tag of the two particles after the process.
+    bond_probability : np.ndarray
+        2d array of shape (N_types, N_types) containing the probabilities that a bond between two particle types happens
+        If the particle bonds to an empty grid site, the bond_probability is the same as the move ("diffusion") probability
+        If a particle bonds to another particle, the bond_probability is the product of the move probability and the binding probability
+    unbond_probability : np.ndarray
+        2d array of shape (N_types, N_types) containing the probabilities that a bond between two particle types breaks
+        If the particle unbonds to another particle, the unbond_probability is the product of the move probability of the 
+        particle, that changes bond partner and the unbonding probability times the new bond probability
+        If a particle unbonds to an empty grid site, the unbond_probability is the product of the average move probability of the two 
+        particles (p1 + p2)/2 move probability and the unbinding probability
+    name_sys : str
+        system name which is used for the traj file
+    dir_sys: str
+        directory which is used for the traj file
+        the file will be saved at 'dir_sys/trajectories/traj_name_sys.hdf5'
+    write_particle_traj : bool
+        if True, a trajectory for every particle type is saved, where each particle is numbered from 1 to N
     
     Parameters
     ----------
@@ -393,50 +512,64 @@ def get_parameters_dict(fname: str):
         
     Returns
     -------
-    parameters_dict : dict
+    config_dict : dict
         Dictionary containing the simulation parameters.
     """
     
     
     with open(fname, 'r') as f:
-        parameters_dict = toml.load(f)
+        config_dict = toml.load(f)
     
-    # backwards compatibility
-    if "comment" not in parameters_dict:
-        parameters_dict["comment"] = ""
+    config_dict['initial_positions']  = np.array(config_dict['initial_positions'], dtype=np.int8)
+    config_dict["bond_possible"]      = np.array(config_dict["bond_possible"], dtype=bool)
+    config_dict["unbond_possible"]    = np.array(config_dict["unbond_possible"], dtype=bool)
+    config_dict["bond_idx"]           = np.array(config_dict["bond_idx"], dtype=np.int8)
+    config_dict["unbond_idx"]         = np.array(config_dict["unbond_idx"], dtype=np.int8)
+    config_dict["bond_probability"]   = np.array(config_dict["bond_probability"])
+    config_dict["unbond_probability"] = np.array(config_dict["unbond_probability"])
+    config_dict["binding_energy"]     = np.array(config_dict["binding_energy"])
+    config_dict["diffusivities"]      = np.array(config_dict["diffusivities"])
+    
+    # for backwards compatibility
+    # TODO remove in future
+    if not 'write_particle_traj' in config_dict:
+        config_dict['write_particle_traj'] = False
         
-    if "diffusion_probability" in parameters_dict:
-        parameters_dict["move_probability"] = np.array(parameters_dict["diffusion_probability"])
-        parameters_dict.dump("diffusion_probability")
+    if not "track_types" in config_dict:
+        config_dict["track_types"] = np.zeros(len(config_dict["particle_names"]), dtype=bool)
+    else:
+        config_dict["track_types"] = np.array(config_dict["track_types"], dtype=bool)
+        
+    if not "type_contains" in config_dict:
+        config_dict["type_contains"] = np.eye(len(config_dict["particle_names"]), dtype=bool)
+    else:
+        config_dict["type_contains"] = np.array(config_dict["type_contains"], dtype=bool)
     
-    parameters_dict["move_probability"] = np.array(parameters_dict["move_probability"])
-    parameters_dict["binding_probability"] = np.array(parameters_dict["binding_probability"])
-    parameters_dict["initial_positions"] = np.array(parameters_dict["initial_positions"])
-    
-    return parameters_dict
+    return config_dict
 
 
-def get_initial_positions(grid_size:        np.ndarray = [300, 100],
-                          concentrations:   np.ndarray = [0.0,   # empty grid site (unused because of normalization)
-                                                          0.05,  # chemokine
-                                                          0.05,  # netrin
-                                                          0.2,   # heparansulfate
-                                                          0.0,   # chemokine-netrin
-                                                          0.0,   # chemokine-heparansulfate
-                                                          0.1, # collagen site
-                                                          0.0,   # chemokine-netrin-collagen
-                                                          0.0],  # netrin-collagen
-                                                        #   x       y
-                          regions_fraction: np.ndarray = [[[0, 1],   [0, 1]],   # empty grid site
-                                                          [[0, 0.2], [0, 1]],   # chemokine
-                                                          [[0, 1],   [0, 1]],   # netrin
-                                                          [[0, 1],   [0, 1]],   # heparansulfate
-                                                          [[0, 1],   [0, 1]],   # chemokine-netrin
-                                                          [[0, 1],   [0, 1]],   # chemokine-heparansulfate
-                                                          [[0, 1],   [0.49, 0.51]],   # collagen site
-                                                          [[0, 1],   [0, 1]],   # chemokine-netrin-collagen
-                                                          [[0, 1],   [0, 1]]]   # netrin-collagen
-                        ):
+def get_initial_positions(
+    grid_size:        np.ndarray = [300, 100],
+    concentrations:   np.ndarray = [0.0,   # empty grid site (unused because of normalization)
+                                    0.05,  # chemokine
+                                    0.05,  # netrin
+                                    0.2,   # heparansulfate
+                                    0.0,   # chemokine-netrin
+                                    0.0,   # chemokine-heparansulfate
+                                    0.1, # collagen site
+                                    0.0,   # chemokine-netrin-collagen
+                                    0.0],  # netrin-collagen
+                                  #   x       y
+    regions_fraction: np.ndarray = [[[0, 1],   [0, 1]],   # empty grid site
+                                    [[0, 0.2], [0, 1]],   # chemokine
+                                    [[0, 1],   [0, 1]],   # netrin
+                                    [[0, 1],   [0, 1]],   # heparansulfate
+                                    [[0, 1],   [0, 1]],   # chemokine-netrin
+                                    [[0, 1],   [0, 1]],   # chemokine-heparansulfate
+                                    [[0, 1],   [0.49, 0.51]],   # collagen site
+                                    [[0, 1],   [0, 1]],   # chemokine-netrin-collagen
+                                    [[0, 1],   [0, 1]]]   # netrin-collagen
+    ):
     '''
     Creates initial configuration for a certain grid size and particle concentrations
     
@@ -529,7 +662,50 @@ def get_initial_positions(grid_size:        np.ndarray = [300, 100],
             ii += 1    
     
     return initial_positions
+
+def get_tracked_particle_initial_positions(init_pos, track_types, type_contains):
+    """
+    For each particle type that should be tracked, an array is returned with the same shape as init_pos, where each 
+    particle is assigned an index from 1 to N, where N is the number of particles of the type that should be tracked.
+    This includes also particle complexes that contain the particle type to be tracked.
     
+    Parameters
+    ----------
+    init_pos : np.ndarray
+        2D array with shape (l_x, l_y) containing the initial positions of the particles.
+    track_types : np.ndarray
+        1D array with shape (n_types,) containing boolean values indicating which particle types should be tracked.
+    type_contains : np.ndarray
+        2D array with shape (n_types, n_types) containing boolean values indicating which particle types are contained in other particle types.
+        Example: if type_contains[1, 2] is True, this means that particle type 2 is contained in particle type 1.
+    
+    Returns
+    -------
+    frame_trackers : np.ndarray
+        3D array with shape (l_x, l_y, n_trackers) containing the indices of the particles that should be tracked.
+        The third dimension corresponds to the different particle types that should be tracked. The entries that 
+        are zero correspond to empty grid sites.
+    """
+    
+    types = np.arange(len(type_contains)) # array containing all particle types in ascending order
+    n_trackers = np.sum(track_types) # number of particle types that should be tracked
+    
+    # initialize array to store the indices of the particles that should be tracked
+    frame_trackers = np.zeros((init_pos.shape[0], init_pos.shape[1], n_trackers), dtype=np.uint16)
+    
+    # loop over particle types that should be tracked
+    for idx_type, ptype in enumerate(types[track_types]):
+        # get particle types in which ptype is contained
+        contained_in = types[type_contains[:, ptype]]
+        
+        # mark which particles are contained in the tracker for the current type
+        frame_trackers[:, :, idx_type] = np.isin(init_pos, contained_in)
+        
+        # give each particle an individual index from 1 to N
+        frame_trackers[:, :, idx_type][frame_trackers[:, :, idx_type]==1] = np.arange(1, np.sum(frame_trackers[:, :, idx_type])+1)
+    
+    return frame_trackers
+
 def validate_name_sys(dir_sys: str, name_sys: str, overwrite_sys: bool = False):
     # create dir if it doesnt exist
     if not os.path.exists(dir_sys):
@@ -564,7 +740,9 @@ def get_fname(dir_sys, name_sys, ftype="trajectory"):
     """
     
     if ftype == "trajectory":
-        fname = os.path.join(dir_sys, "trajectories", "traj_"+name_sys+".toml")
+        fname = os.path.join(dir_sys, "trajectories", "traj_"+name_sys+".hdf5")
+    if ftype == "particle_traj":
+        fname = os.path.join(dir_sys, "trajectories_tracked", "traj_particles"+name_sys+".hdf5")
     if ftype == "config":
         fname = os.path.join(dir_sys, "configs", "cfg_"+name_sys+".toml")
     if ftype == "animation":
@@ -574,3 +752,5 @@ def get_fname(dir_sys, name_sys, ftype="trajectory"):
         os.makedirs(os.path.dirname(fname))
         
     return fname
+
+    

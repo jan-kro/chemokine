@@ -2,10 +2,10 @@
 # Chemokine
 Monte Carlo simulation of diffusing chemokine, netrin and heparansulfates with possibility to build chemokine-netrin and chemokine-heparansulfate complexes. The chemokine-netrin complex additionally binds to a collagene fiber, that spans the whole simulation box.
 
-The simulation is run by specifying the simulation parameters in the ```run.py``` file and then running the skript
+The simulation is run by specifying the simulation parameters in a ```config.toml``` file and then running the script
 
 ```console
-python run.py
+python run.py system_name /path/to/system/
 ```
 
 # Conda Environment
@@ -55,6 +55,9 @@ paste the following command in the command line:
 ```console
 conda config --set env_prompt '({name})'
 ```
+
+# Simulation Setup
+
 
 
 

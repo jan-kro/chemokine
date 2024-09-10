@@ -2,7 +2,7 @@ import os
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
-from animation import animate
+
 
 
 # traj_dirs = ["/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_homogeneous/trajectories",
@@ -10,14 +10,14 @@ from animation import animate
 traj_dirs = ["/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_all_logscale/trajectories",
              "/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale/trajectories"]
 
-# traj_dirs = ["/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale_eq/trajectories",
-#              "/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale_eq/trajectories"]
+# # traj_dirs = ["/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale_eq/trajectories",
+# #              "/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale_eq/trajectories"]
 
-traj_dirs = ["/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale_eq_3/trajectories",
-             "/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale_eq_3/trajectories"]
+# traj_dirs = ["/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale_eq_3/trajectories",
+#              "/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale_eq_3/trajectories"]
 
-traj_dirs = ["/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale_eq_long_inverse/trajectories",
-             "/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale_eq_long/trajectories"]
+# traj_dirs = ["/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale_eq_long_inverse/trajectories",
+#              "/local_scratch2/janmak98/chemokine/results/langmuir_ccl5_netrin_only_logscale_eq_long/trajectories"]
 
 system_names = []
 for traj_dir in traj_dirs:
@@ -61,14 +61,14 @@ n_grid_sites         = np.zeros_like(n_netrin)
 n_all_initial        = np.zeros_like(n_netrin)
 
 # # animate
-for idx_file, conc in zip(idx_fnames, netrin_concentration):
-    if conc == 0.006:
-        print(f'loading {traj_fnames[idx_file]}')
-        print(f'conc = {conc}')
-        print(f'idx_file = {idx_file}')
-        animate(h5py.File(traj_fnames[idx_file], 'r')['trajectory'], show=True, save=False, fname=None)
+# for idx_file, conc in zip(idx_fnames, netrin_concentration):
+#     if conc == 0.006:
+#         print(f'loading {traj_fnames[idx_file]}')
+#         print(f'conc = {conc}')
+#         print(f'idx_file = {idx_file}')
+#         animate(h5py.File(traj_fnames[idx_file], 'r')['trajectory'], show=True, save=False, fname=None)
         
-raise SystemExit
+# raise SystemExit
 
 nt = []
 
@@ -90,7 +90,7 @@ for idx, traj_fname in enumerate(traj_fnames):
     nt.append(np.zeros((3, traj.shape[0])))
         
     # get average number of particles for every conccentraion
-    for idx_frame in range(n_frames):
+    for idx_frame in range(n_frames//2, 3*n_frames//4):
         n_chemokine[idx]  += np.sum(traj[idx_frame] == 1)
         n_netrin[idx]     += np.sum(traj[idx_frame] == 2)
         n_cn_complex[idx] += np.sum(traj[idx_frame] == 4)
@@ -173,11 +173,11 @@ def langmuir_analytical_4(n_netrin, n_total, bond_energy):
     return lgmr
 
 
-plt.figure()
-plt.plot(n_chemokine[dir_idx==1], langmuir_2[dir_idx==1], 'o-', label='only netrin and chemokine')
-plt.plot(n_chemokine[dir_idx==1], langmuir_analytical_3(n_chemokine[dir_idx==1], n_netrin[dir_idx==1]+n_chemokine[dir_idx==1]+n_cn_complex[dir_idx==1], np.log(binding_probability[2, 1])), label='N1 = CCL5+Net1+CN (eq)')
-plt.plot(n_chemokine[dir_idx==1], langmuir_analytical_3(n_chemokine[dir_idx==1], n_netrin[dir_idx==1]+n_chemokine[dir_idx==1]+n_cn_complex[dir_idx==1], np.log(69.07)), label='N1 = CCL5+Net1+CN (eq)')
-plt.show()
+# plt.figure()
+# plt.plot(n_chemokine[dir_idx==1], langmuir_2[dir_idx==1], 'o-', label='only netrin and chemokine')
+# plt.plot(n_chemokine[dir_idx==1], langmuir_analytical_3(n_chemokine[dir_idx==1], n_netrin[dir_idx==1]+n_chemokine[dir_idx==1]+n_cn_complex[dir_idx==1], np.log(binding_probability[2, 1])), label='N1 = CCL5+Net1+CN (eq)')
+# plt.plot(n_chemokine[dir_idx==1], langmuir_analytical_3(n_chemokine[dir_idx==1], n_netrin[dir_idx==1]+n_chemokine[dir_idx==1]+n_cn_complex[dir_idx==1], np.log(69.07)), label='N1 = CCL5+Net1+CN (eq)')
+# plt.show()
 
 plt.figure()
 
@@ -200,11 +200,13 @@ des = np.linspace(-2, 2, 9)
 #for de in des:
 
 bp = binding_probability[2, 1]
-bp = 69.07
-plt.plot(n_netrin[dir_idx==1], langmuir_analytical_3(n_netrin[dir_idx==1], n_netrin[dir_idx==1]+n_chemokine[dir_idx==1]+n_cn_complex[dir_idx==1], np.log(bp)), label=f'pb = {bp:.1f} N1 = CCL5+Net1+CN (eq)')
+#bp = 69.07
+#plt.plot(n_netrin[dir_idx==1], langmuir_analytical_3(n_netrin[dir_idx==1], n_netrin[dir_idx==1]+n_chemokine[dir_idx==1]+n_cn_complex[dir_idx==1], np.log(bp)), label=f'pb = {bp:.1f} N1 = CCL5+Net1+CN (eq)')
 #plt.plot(n_netrin[dir_idx==1], langmuir_analytical_3(n_netrin[dir_idx==1], n_netrin_initial[dir_idx==1]+n_chemokine_initial[dir_idx==1], np.log(bp+de)), label=f'pb = {bp}+{de} N1 = CCL5+Net1+CN (eq) 2')
 #plt.plot(n_netrin_initial[dir_idx==1], langmuir_analytical_3(n_netrin_initial[dir_idx==1], n_netrin_initial[dir_idx==1]+n_chemokine_initial[dir_idx==1], np.log(bp+de)), label=f'pb = {bp}+{de} N1 = CCL5+Net1+CN (eq) 3')
-plt.plot(n_netrin[dir_idx==1], langmuir_analytical(n_netrin[dir_idx==1]/n_grid_sites[dir_idx==1], np.log(bp+de)), label=f'pb = {bp}+{de} N1 = CCL5+Net1+CN (eq) 3')
+plt.plot(n_netrin[dir_idx==1], langmuir_analytical(n_netrin[dir_idx==1]/n_grid_sites[dir_idx==1], np.log(bp)), label=f'pb = {bp} 1')
+plt.plot(n_netrin[dir_idx==1], langmuir_analytical(n_netrin_initial[dir_idx==1]/n_grid_sites[dir_idx==1], np.log(bp)), label=f'pb = {bp} 2')
+plt.plot(n_netrin[dir_idx==1], langmuir_analytical(2*n_netrin_initial[dir_idx==1]/n_grid_sites[dir_idx==1], np.log(bp)), label=f'pb = {bp} 2')
 #plt.plot(n_netrin[dir_idx==1], langmuir_analytical_3(n_netrin[dir_idx==1], n_netrin[dir_idx==1]+n_chemokine[dir_idx==1], np.log(binding_probability[2, 1])), label='N1 = CCL5+Net1 (eq)')
 # plt.plot(n_netrin[dir_idx==1], langmuir_analytical_3(n_netrin[dir_idx==1], n_netrin[dir_idx==1]+n_chemokine[dir_idx==1]+2*n_cn_complex[dir_idx==1], np.log(binding_probability[2, 1])), label='N1 = CCL5+Net1+2*CN (eq)')
 #plt.plot(n_netrin[dir_idx==1], langmuir_analytical_3(n_netrin_initial[dir_idx==1], n_netrin_initial[dir_idx==1]+n_chemokine_initial[dir_idx==1], np.log(binding_probability[2, 1])), label='N = CCL5+Net1 (init)')
