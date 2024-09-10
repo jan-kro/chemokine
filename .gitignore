@@ -1,5 +1,6 @@
 movies/
 plots/
+tests/
 trajectories/
 monte_carlo_chemokine_test.py
 monte_carlo_chemokine_old.py
