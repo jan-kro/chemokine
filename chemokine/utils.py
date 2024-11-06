@@ -25,7 +25,7 @@ def calc_time_step_ratio(energy_matrix: np.ndarray, diffusivity_array: np.ndarra
     diffusivity_array : np.ndarray
         1d array containing the diffusivity of every particle in [m^2/s].
     only_diff : bool, optional
-        If True, only the diffusivity is considered for calculating the step probability.
+        If True, only the diffusivity is considered for calculating the step probability. cd /home/janmak98/Projects/chemokine_skripts; conda activate chemokine
     
     Returns
     -------
@@ -368,6 +368,7 @@ def plot_grid(
     save:           bool  = True,
     fname:          str   = None,
     show_collagen:  bool  = True,
+    fname_collagen_image: str = "images/collagen_fiber_long.png",
     marker_scale:   float = 1.0,
     plot_edge:      float = 4.0):
     """
@@ -387,7 +388,8 @@ def plot_grid(
     """
     
     # import background image of collagen fiber
-    img = plt.imread("images/collagen_fiber_long.png")
+    if show_collagen:
+        img = plt.imread(fname_collagen_image)
     
     if particle_names==None:
         particle_names =[
@@ -452,10 +454,9 @@ def plot_grid(
 
 def load_config_dict(fname: str):
     """
-    Retruns the simulation config as dictionary from a toml file.
+    Returns the simulation config as dictionary from a toml file.
     The lists in the config are converted to numpy arrays with the respective dtype.
     The config keys include:
-    
     comment: str
         Comment string for the simulation.
         Can contain any information about the simulation.
@@ -469,44 +470,33 @@ def load_config_dict(fname: str):
     particle_names : list
         list of strings containing the names of the particles in the same order as the particle types
     initial_positions : np.ndarray
-        2d array of the initial postitions of the particles with shape (N_sites_x, N_sites_y)
+        2d array of the initial positions of the particles with shape (N_sites_x, N_sites_y)
         The array consists of N different integer values, where N is the number of particle types.
         Empty grid sites are also particle types.
         Example: init_pos[3, 7] = 1 means that there is a particle of type 1 at position x=3, y=7
-    bond_possible : np.ndarray
-        2d array of booleans with shape (N_types, N_types) determining if two particles can bind
-        The first index is the particle that wants to bind and the second index is the particle that it will bind to
-        a simple diffusion is also treated as a bond, where the particle binds to an empty grid site
-    unbond_possible : np.ndarray
-        2d array of booleans with shape (N_types, N_types) determining if two particles can unbind
-        The first index is the particle that wants to break its bond and the second index is the particle that it will unbind to.
-        A particle can unbind twards an empty grid site or towards another particle, which can bond with one of the unbonded particles.
-    bond_idx : np.ndarray
-        3d array of shape (N_types, N_types, 2) containing the tags of the new particles after a bond
-        The first index is the particle that wants to bind and the second index is the particle that it will bind to
-        The third index is the tag of the two particles after the bond
-        If the particle bonds to an empty grid site, the first index of the resulting types is zero 
-    unbond_idx : np.ndarray
-        3d array of shape (N_types, N_types, 2) containing the tags of the new particles after an unbond
-        The first index is the particle that wants to unbind and the second index is the particle that it will unbind to
-        The third index is the tag of the two particles after the process.
-    bond_probability : np.ndarray
-        2d array of shape (N_types, N_types) containing the probabilities that a bond between two particle types happens
-        If the particle bonds to an empty grid site, the bond_probability is the same as the move ("diffusion") probability
-        If a particle bonds to another particle, the bond_probability is the product of the move probability and the binding probability
-    unbond_probability : np.ndarray
-        2d array of shape (N_types, N_types) containing the probabilities that a bond between two particle types breaks
-        If the particle unbonds to another particle, the unbond_probability is the product of the move probability of the 
-        particle, that changes bond partner and the unbonding probability times the new bond probability
-        If a particle unbonds to an empty grid site, the unbond_probability is the product of the average move probability of the two 
-        particles (p1 + p2)/2 move probability and the unbinding probability
+    interaction_probabilities : np.ndarray
+        3d array with shape (N, N, N^2)
+        It contains all probabilities (divided by 4) for every possible outcome state between two particles.
+        The first index i_in is the particle type of the first particle, the second index j_in is the particle type of the second particle.
+        The third index ij_out contains the probability that the state [i_out, j_out] = [ij_out//N, ij_out%N] occurs.
+        The sum over the third index should be 0.25 for every i_in, j_in.         
     name_sys : str
         system name which is used for the traj file
     dir_sys: str
         directory which is used for the traj file
         the file will be saved at 'dir_sys/trajectories/traj_name_sys.hdf5'
-    write_particle_traj : bool
-        if True, a trajectory for every particle type is saved, where each particle is numbered from 1 to N
+    track_types : np.ndarray
+        1d array of booleans with length N
+        If track_types[i] = True, the trajectory of particle type i is saved
+    diffusivities : np.ndarray
+        1d array of floats with length N
+        The diffusivity of particle type i in units of m^2/s
+    binding_energy : np.ndarray
+        2d array of floats with length (N,N)
+        The binding energy of particle type i to particle of type j in units of kBT
+    binding_constants : np.ndarray
+        exponential of the binding energy
+        
     
     Parameters
     ----------
@@ -524,29 +514,11 @@ def load_config_dict(fname: str):
         config_dict = toml.load(f)
     
     config_dict['initial_positions']  = np.array(config_dict['initial_positions'], dtype=np.int8)
-    config_dict["bond_possible"]      = np.array(config_dict["bond_possible"], dtype=bool)
-    config_dict["unbond_possible"]    = np.array(config_dict["unbond_possible"], dtype=bool)
-    config_dict["bond_idx"]           = np.array(config_dict["bond_idx"], dtype=np.int8)
-    config_dict["unbond_idx"]         = np.array(config_dict["unbond_idx"], dtype=np.int8)
-    config_dict["bond_probability"]   = np.array(config_dict["bond_probability"])
-    config_dict["unbond_probability"] = np.array(config_dict["unbond_probability"])
-    config_dict["binding_energy"]     = np.array(config_dict["binding_energy"])
-    config_dict["diffusivities"]      = np.array(config_dict["diffusivities"])
+    config_dict["binding_energy"]     = np.array(config_dict["binding_energy"], dtype=np.float64)
+    config_dict["diffusivities"]      = np.array(config_dict["diffusivities"], dtype=np.float64)
+    config_dict["track_types"]        = np.array(config_dict["track_types"], dtype=bool)
+    config_dict["interaction_probabilities"] = np.array(config_dict["interaction_probabilities"], dtype=np.float64)
     
-    # for backwards compatibility
-    # TODO remove in future
-    if not 'write_particle_traj' in config_dict:
-        config_dict['write_particle_traj'] = False
-        
-    if not "track_types" in config_dict:
-        config_dict["track_types"] = np.zeros(len(config_dict["particle_names"]), dtype=bool)
-    else:
-        config_dict["track_types"] = np.array(config_dict["track_types"], dtype=bool)
-        
-    if not "type_contains" in config_dict:
-        config_dict["type_contains"] = np.eye(len(config_dict["particle_names"]), dtype=bool)
-    else:
-        config_dict["type_contains"] = np.array(config_dict["type_contains"], dtype=bool)
     
     return config_dict
 
@@ -666,7 +638,89 @@ def get_initial_positions(
     
     return initial_positions
 
-def get_tracked_particle_initial_positions(init_pos, track_types, type_contains):
+def get_initial_positions_homogeneous(grid_size: np.ndarray, concentrations: np.ndarray):
+    initial_positions = np.zeros(grid_size)
+
+    if np.sum(concentrations) > 1:
+        raise ValueError("Concentrations are too high and sum over 1")
+
+
+    maxit = 1e7
+    for ptype, con in enumerate(concentrations):
+        
+        if ptype == 0:
+            continue
+        
+        n_tot = np.round(con*grid_size[0]*grid_size[1])
+        n = 0
+        it  = 0
+        while n<n_tot:
+            i = np.random.randint(0,grid_size[0])
+            j = np.random.randint(0,grid_size[1])
+        
+            if initial_positions[i,j] == 0:
+                initial_positions[i,j] = ptype
+                n += 1
+            it+=1
+            
+            if it >= maxit:
+                raise ValueError("maxit reached")
+            
+    return initial_positions
+
+def _get_state_index(i, j, n_ptypes):
+    return i*n_ptypes + j
+
+def _get_interaction_indices(state_index, n_ptypes):
+    return [state_index//n_ptypes, state_index%n_ptypes]
+
+def _get_type_contains(interaction_probabilities):
+    """
+    Create a lookup table for which particle type contains which other particle type.
+    If particle type i contains particle type j, then type_contains[i, j] is True.
+    
+    Parameters
+    ----------
+    interaction_probabilities : np.ndarray
+        3D array with shape (n_ptypes, n_ptypes, n_ptypes**2) containing the probabilities of interactions.
+        The first index is the particle that wants to bind, the second index is the particle that it will bind to
+        and the third index is the state index of the resulting particles.
+        
+    Returns
+    -------
+    type_contains : np.ndarray
+        2D array with shape (n_ptypes, n_ptypes) containing boolean values indicating which particle types are contained in other particle types.
+        Example: if type_contains[1, 2] is True, this means that particle type 2 is contained in particle type 1.
+    """
+    n_ptypes = interaction_probabilities.shape[0]
+    type_contains = np.zeros((n_ptypes, n_ptypes), dtype=bool)
+
+    for i in range(n_ptypes):
+        for j in range(n_ptypes):
+            for k in range(n_ptypes**2):
+                if interaction_probabilities[i, j, k] > 0:
+                    n, m = _get_interaction_indices(k, n_ptypes=n_ptypes)
+                    # if initial particle and resulting particle are both not empty sites
+                    if i != 0 and m!=0:
+                        # if whole particle moves, resulting particle contains initial particle
+                        if n == 0:        
+                            type_contains[m, i] = True
+                        # if the bond partner is not an empty site, resulting particle contains the bond partner 
+                        if j != 0:
+                            type_contains[m, j] = True
+                            
+    # for any particle that is contained in another particle, the particle that contains it also contains all particles that the contained particle contains                    
+    for i in range(n_ptypes):
+        for j in range(n_ptypes):
+            if type_contains[i,j]:
+                for k in range(n_ptypes):
+                    if type_contains[j,k]:
+                        type_contains[i,k] = True
+                        
+    return type_contains
+
+
+def get_tracked_particle_initial_positions(config):
     """
     For each particle type that should be tracked, an array is returned with the same shape as init_pos, where each 
     particle is assigned an index from 1 to N, where N is the number of particles of the type that should be tracked.
@@ -678,9 +732,6 @@ def get_tracked_particle_initial_positions(init_pos, track_types, type_contains)
         2D array with shape (l_x, l_y) containing the initial positions of the particles.
     track_types : np.ndarray
         1D array with shape (n_types,) containing boolean values indicating which particle types should be tracked.
-    type_contains : np.ndarray
-        2D array with shape (n_types, n_types) containing boolean values indicating which particle types are contained in other particle types.
-        Example: if type_contains[1, 2] is True, this means that particle type 2 is contained in particle type 1.
     
     Returns
     -------
@@ -690,6 +741,11 @@ def get_tracked_particle_initial_positions(init_pos, track_types, type_contains)
         are zero correspond to empty grid sites.
     """
     
+    init_pos = config["initial_positions"]
+    track_types = config["track_types"] 
+    interaction_probabilities = config["interaction_probabilities"]
+    
+    type_contains = _get_type_contains(interaction_probabilities)
     types = np.arange(len(type_contains)) # array containing all particle types in ascending order
     n_trackers = np.sum(track_types) # number of particle types that should be tracked
     
@@ -782,8 +838,32 @@ def get_traj_xy(traj, n_particles: int):
         
     return traj_xy
 
-def get_msd_xy(config, type_idx=0):
+def get_particle_numbers_concentrations(config):
+    init_pos = config["initial_positions"]
+    n_grid = init_pos.shape[0]*init_pos.shape[1]
+    type_contains = config["type_contains"]
+    ntypes = len(config["bond_possible"])
+    ptypes = np.arange(ntypes)
+    n_part = np.zeros(ntypes)
+    for k in range(ntypes):#
+        for j in range(ntypes):
+            if type_contains[k, j] == True:
+                n_part[j] += np.count_nonzero(init_pos == ptypes[k])
+    return n_part, n_part/n_grid
 
+def get_tracked_type_idx(config, ptype):
+    track_types = config["track_types"]
+    idx = 0
+    for i in range(ptype):
+        if track_types[i]:
+            idx += 1
+    return idx
+
+def get_msd_xy(config, ptype=0):
+
+    
+    type_idx = get_tracked_type_idx(config, ptype)
+    
     fname_particle_traj = get_fname(config["dir_sys"], config["name_sys"], "particle_traj")
     
     print(f"Get MSD for system {config['name_sys']}")
@@ -796,9 +876,6 @@ def get_msd_xy(config, type_idx=0):
         
         n_particles = np.count_nonzero(fh5["trajectory"][0,:,:,type_idx])
         
-        ntypes = len(config["track_types"])
-        ptypes = np.arange(ntypes)[config["track_types"]]
-        ptype = ptypes[type_idx]
         pname = config["particle_names"][ptype]
         
         
