@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import os
 import toml
 import h5py
+from tqdm import tqdm
 import ffmpeg
 
 #! TODO create FileType class to avoid plain text in file creation etc...
@@ -318,6 +319,43 @@ def animate(trajectory:                    np.ndarray,
         anim.save(fname, fps=fps)
         print(f'animation saved at {fname}.')
 
+def animate_ffmpeg_from_config(
+    config:           dict,
+    stride:           int         = 1,
+    frame_range:      tuple       = None,
+    particle_names:   list        = None,
+    fname:            str         = None,
+    fps_in:           int         = 15,
+    fps_out:          int         = 30,
+    marker_scale:     float       = 1.0,
+    plot_edge:        int         = 5,
+    show_collagen:    bool        = True,
+    delete_frames:    bool        = True):
+
+
+    fname_traj =  get_fname(config["dir_sys"], config["name_sys"], ftype="trajectory")
+    
+    if particle_names is None:
+        if "particle_names" in config.keys():
+            particle_names = config["particle_names"]
+    if fname is None:
+        fname = get_fname(config["dir_sys"], config["name_sys"], ftype="animation")
+    
+    with h5py.File(fname_traj, "r") as f:
+        # useful because if f["trajectory"] is not indexed, it is not loaded into memory
+        #! Todo: redo this by passing frame range and stride into png generator!! 
+        if frame_range is not None:
+            if stride !=1:
+                traj = f["trajectory"][frame_range[0]:frame_range[1]:stride]
+            else:
+                traj = f["trajectory"][frame_range[0]:frame_range[1]]
+        elif stride != 1:
+            traj = f["trajectory"][::stride]
+        else:
+            traj = f["trajectory"]
+        animate_ffmpeg(traj, particle_names=particle_names, fname=fname, fps_in=fps_in, fps_out=fps_out, marker_scale=marker_scale, plot_edge=plot_edge,show_collagen=show_collagen, delete_frames=delete_frames)
+
+
 def animate_ffmpeg(
     trajectory,
     particle_names:   list        = None,
@@ -326,7 +364,8 @@ def animate_ffmpeg(
     fps_out:          int         = 30,
     marker_scale:     float       = 1.0,
     plot_edge:        int         = 5,
-    show_collagen:    bool        = True):
+    show_collagen:    bool        = True,
+    delete_frames:    bool        = True):
     
     n_frames = trajectory.shape[0]
 
@@ -337,8 +376,9 @@ def animate_ffmpeg(
     
     print("Saving individual frames ...")
     # save individual frames
+    #n_digits = int(np.ceil(np.log10(n_frames)))
     for i in range(n_frames):
-        fname_frame = fname.replace(".mp4", "_frame") + str(i) + ".png"
+        fname_frame = fname.replace(".mp4", "_frame") + str(i) + ".png" #f"{i:0{n_digits}d}.png"
         plot_grid(
             trajectory[i], 
             show=False, 
@@ -352,13 +392,15 @@ def animate_ffmpeg(
     
     print("Converting frames to video ...")
     # convert to video
+    # ffmpeg -framerate 1 -i frame%d.png -c:v libx264 -r 30 output.mp4
     ffmpeg.input(fname.replace(".mp4", "_frame") + "%d.png", framerate=fps_in).output(fname, framerate=fps_out, loglevel="warning").run()
 
-    print("Deleting individual frames ...")
-    # delete frames
-    for i in range(n_frames):
-        os.remove(fname.replace(".mp4", "_frame") + str(i) + ".png")
-    
+    if delete_frames:
+        print("Deleting individual frames ...")
+        # delete frames
+        for i in range(n_frames):
+            os.remove(fname.replace(".mp4", "_frame") + str(i) + ".png")
+        
     print("Done.")
     
 def plot_grid(
@@ -790,26 +832,35 @@ def validate_name_sys(dir_sys: str, name_sys: str, overwrite_sys: bool = False):
     
     return name_sys
 
-def get_fname(dir_sys, name_sys, ftype="trajectory"):
+def get_fname(dir_sys, name_sys, ftype="trajectory", name=None):
     """
     filetypes:
         trajectory
+        particle_traj
         config
         animation
     """
+    if name is None:
+        name = name_sys
     
     if ftype == "trajectory":
-        fname = os.path.join(dir_sys, "trajectories", "traj_"+name_sys+".hdf5")
+        fname = os.path.join(dir_sys, "trajectories", "traj_"+name+".hdf5")
     if ftype == "particle_traj":
-        fname = os.path.join(dir_sys, "trajectories_tracked", "traj_particles"+name_sys+".hdf5")
+        fname = os.path.join(dir_sys, "trajectories_tracked", "traj_particles"+name+".hdf5")
     if ftype == "config":
-        fname = os.path.join(dir_sys, "configs", "cfg_"+name_sys+".toml")
+        fname = os.path.join(dir_sys, "configs", "cfg_"+name+".toml")
     if ftype == "animation":
-        fname = os.path.join(dir_sys, "animations", "anim_"+name_sys+".mp4")
+        fname = os.path.join(dir_sys, "animations", "anim_"+name+".mp4")
+    if ftype == "results":
+        fname = os.path.join(dir_sys, "results", name+".hdf5")
         
     if not os.path.exists(os.path.dirname(fname)):
-        os.makedirs(os.path.dirname(fname))
-        
+        #! This is necessary for parallel processing, because the directory might be created by another process
+        try:
+            os.makedirs(os.path.dirname(fname))
+        except:
+            print(f"Could not create directory {os.path.dirname(fname)}")
+            
     return fname
 
 @njit
@@ -817,39 +868,66 @@ def get_traj_xy(traj, n_particles: int):
     """
     Calculates a trajectory of shape (n_particles, n_frames, 2) from a trajectory of shape (n_frames, n_x, n_y), 
     where the last dimension is the x and y index (=position) of the particle in the frame.
+    
+    Parameters
+    ----------
+    traj : np.ndarray
+        Trajectory of the particles of shape (n_frames, n_x, n_y), where each particle is represented by an individual integer value raneging from 1 to N+1, where N is the number of particles in the trajectory.
+    n_particles : int
+        Number of particles in the trajectory.
     """
+    #! TODO there is no reason that one needs to pass the number of particles, this should be infered from the trajectory
+    n_frames, n_x, n_y = traj.shape
+    l_xy = np.array([n_x, n_y])
     
-    n_frames = traj.shape[0]
-    l_xy = np.array([traj.shape[1], traj.shape[2]])
+    # Infer number of particles
+    n_particles = int(np.max(traj[0]))
     
-    traj_xy = np.zeros((n_particles, n_frames, 2))
+    # Preallocate output
+    traj_xy = np.zeros((n_particles, n_frames, 2), dtype=np.int64)
     
-    # save starting frame
-    for particle_index in range(n_particles):
-        traj_xy[particle_index, 0, :] = np.argwhere(traj[0,:,:] == particle_index+1)[0]
+    # Precompute positions for all frames
+    particle_positions = np.zeros((n_frames, n_particles, 2), dtype=np.int64)
+    for frame_idx in range(n_frames):
+        for particle_index in range(1, n_particles + 1):
+            position = np.argwhere(traj[frame_idx] == particle_index)
+            if position.size > 0:  # Particle is present
+                particle_positions[frame_idx, particle_index - 1] = position[0]
+
+    # Add initial positions
+    traj_xy[:, 0, :] = particle_positions[0]
     
-    for frame_idx in range(1, n_frames):
-        curr_frame = traj[frame_idx,:,:]
-        
-        for particle_index in range(n_particles):
-            # unwrap trajectory using minimum image convention
-            curr_pos = np.argwhere(curr_frame == particle_index+1)[0]
-            traj_xy[particle_index, frame_idx,:] = curr_pos + np.round((traj_xy[particle_index, frame_idx-1, :] - curr_pos)/l_xy) * l_xy  
-        
+    # Unwrap trajectory using the minimum image convention
+    for frame_idx in range(1, n_frames):   
+        delta = particle_positions[frame_idx] - particle_positions[frame_idx - 1]
+        traj_xy[:, frame_idx, :] = traj_xy[:, frame_idx - 1, :] + delta - l_xy * np.round(delta / l_xy)
+
     return traj_xy
 
-def get_particle_numbers_concentrations(config):
+def get_particle_numbers_concentrations(config, total=True, skip_frames=0):
     init_pos = config["initial_positions"]
     n_grid = init_pos.shape[0]*init_pos.shape[1]
-    type_contains = config["type_contains"]
-    ntypes = len(config["bond_possible"])
+    type_contains = _get_type_contains(config["interaction_probabilities"])
+    ntypes = len(config["diffusivities"])
     ptypes = np.arange(ntypes)
     n_part = np.zeros(ntypes)
-    for k in range(ntypes):#
-        for j in range(ntypes):
-            if type_contains[k, j] == True:
-                n_part[j] += np.count_nonzero(init_pos == ptypes[k])
-    return n_part, n_part/n_grid
+    if total:
+        for k in range(ntypes):
+            for j in range(ntypes):
+                if type_contains[j, k] == True:
+                    n_part[k] += np.count_nonzero(init_pos == ptypes[j])
+    else:
+        fname_particle_traj = get_fname(config["dir_sys"], config["name_sys"], "trajectory")
+        with h5py.File(fname_particle_traj, "r") as fh5:
+            traj = fh5["trajectory"]
+
+            n_frames = traj.shape[0]
+
+            for i in range(skip_frames, n_frames):
+                for k in range(ntypes):
+                    n_part[k] += np.sum(traj[i] == ptypes[k])
+            n_part /= (n_frames-skip_frames)
+    return n_part, n_part/n_grid 
 
 def get_tracked_type_idx(config, ptype):
     track_types = config["track_types"]
@@ -859,31 +937,113 @@ def get_tracked_type_idx(config, ptype):
             idx += 1
     return idx
 
-def get_msd_xy(config, ptype=0):
+def get_number_of_frames(config):
+    fname_particle_traj = get_fname(config["dir_sys"], config["name_sys"], "trajectory")
+    with h5py.File(fname_particle_traj, "r") as fh5:
+        traj = fh5["trajectory"]
+        n_frames = traj.shape[0]
+    return n_frames
 
+def _validate_frame_range(frame_range, n_frames):
     
+    if frame_range is None:
+        frame_range = (0, n_frames)
+    else:
+        if frame_range[0] < 0 or frame_range[1] > n_frames:
+            raise ValueError("Frame range is not valid.")
+    return frame_range
+
+def get_msd_xy(config, ptype=0, frame_range=None, stride=1):
+
     type_idx = get_tracked_type_idx(config, ptype)
-    
     fname_particle_traj = get_fname(config["dir_sys"], config["name_sys"], "particle_traj")
     
     print(f"Get MSD for system {config['name_sys']}")
     print(f"Loading .hdf5 trajectory file ...")
     with h5py.File(fname_particle_traj, "r") as fh5:
-        traj = fh5["trajectory"]
+        
+        frame_range = _validate_frame_range(frame_range, get_number_of_frames(config))
+        
+        traj = fh5["trajectory"][frame_range[0]:frame_range[1]:stride, :, :, type_idx]
         
         n_frames = traj.shape[0]
+        
         l_xy = np.array([traj.shape[1], traj.shape[2]])
         
-        n_particles = np.count_nonzero(fh5["trajectory"][0,:,:,type_idx])
+        n_particles = int(np.max(traj[0]))
         
         pname = config["particle_names"][ptype]
-        
         
         print(f"Number of {pname} particles of in system {config['name_sys']}: {n_particles}")
         
         print("Unwrapping trajectory...")        
-        traj_xy = get_traj_xy(traj[:,:,:,type_idx], n_particles)
+        traj_xy = get_traj_xy(traj, n_particles)
         
+        msd_all_x = np.zeros((n_particles, n_frames))
+        msd_all_y = np.zeros((n_particles, n_frames))
+            
+        print("Calculating MSD...")
+        
+        for k in range(n_particles):
+            msd_all_x[k] = tid.msd(traj_xy[k,:,0])
+            msd_all_y[k] = tid.msd(traj_xy[k,:,1])
+
+        msd_x = np.mean(msd_all_x, axis=0)
+        msd_y = np.mean(msd_all_y, axis=0)
+        
+        return msd_x, msd_y
+    
+def get_msd_xy_2(config, ptype=0, frame_range=None, stride=1):
+    # this method calculates the unwrapped trajectory without loading the total particle_traj into memory
+    # slower than get_msd_xy but no memory complications
+    
+    type_idx = get_tracked_type_idx(config, ptype)
+    fname_particle_traj = get_fname(config["dir_sys"], config["name_sys"], "particle_traj")
+    
+    print(f"Get MSD for system {config['name_sys']}")
+    print(f"Loading .hdf5 trajectory file ...")
+    with h5py.File(fname_particle_traj, "r") as fh5:
+        
+        frame_range = _validate_frame_range(frame_range, get_number_of_frames(config))
+        
+        frame_indices = np.arange(frame_range[0], frame_range[1], stride)
+        
+        n_frames = len(frame_indices)
+        
+        traj = fh5["trajectory"]
+        
+        n_particles = int(np.max(traj[0, :, :, type_idx]))
+        
+        pname = config["particle_names"][ptype]
+        
+        print(f"Number of {pname} particles of in system {config['name_sys']}: {n_particles}")
+        
+        print("Unwrapping trajectory...")        
+        # traj_xy = get_traj_xy(traj, n_particles)
+        
+        l_xy = np.array([traj.shape[1], traj.shape[2]])
+                
+        # Preallocate output
+        traj_xy = np.zeros((n_particles, n_frames, 2), dtype=np.int64)
+        
+        # Precompute positions for all frames
+        particle_positions = np.zeros((n_frames, n_particles, 2), dtype=np.int64)
+        for idx_pos, frame_idx in enumerate(frame_indices):
+            for particle_index in range(1, n_particles + 1):
+                position = np.argwhere(traj[frame_idx, :, :, type_idx] == particle_index)
+                if position.size > 0:  # Particle is present
+                    particle_positions[idx_pos, particle_index - 1] = position[0]
+                else:
+                    raise ValueError(f"Particle {particle_index} is not present in frame {frame_idx}")
+        
+        # Add initial positions
+        traj_xy[:, 0, :] = particle_positions[0]
+        
+        # Unwrap trajectory using the minimum image convention
+        for pos_idx in range(1, n_frames):#frame_indices[1:]:
+            delta = particle_positions[pos_idx] - particle_positions[pos_idx - 1]
+            traj_xy[:, pos_idx, :] = traj_xy[:, pos_idx - 1, :] + delta - l_xy * np.round(delta / l_xy)
+            
         msd_all_x = np.zeros((n_particles, n_frames))
         msd_all_y = np.zeros((n_particles, n_frames))
             
