@@ -77,7 +77,7 @@ def effective_diffusivity_two_comp(A, B, D_A, D_AB, K_1):
 def linear_fit_function(x, k, d):
     return x*k + d
 
-def get_particle_numbers_concentrations(config, total=True, skip_frames=0):
+def get_particle_numbers_concentrations(config, total=True, skip_frames=0, method="efficient"):
     init_pos = config["initial_positions"]
     n_grid = init_pos.shape[0]*init_pos.shape[1]
     type_contains = ck.utils._get_type_contains(config["interaction_probabilities"])
@@ -92,7 +92,13 @@ def get_particle_numbers_concentrations(config, total=True, skip_frames=0):
     else:
         fname_particle_traj = ck.utils.get_fname(config["dir_sys"], config["name_sys"], "trajectory")
         with h5py.File(fname_particle_traj, "r") as fh5:
-            traj = fh5["trajectory"]
+            if method == "efficient":
+                traj = fh5["trajectory"]
+            elif method == "fast":
+                traj = fh5["trajectory"][:]
+            else:
+                raise ValueError("Method not implemented.")
+
 
             n_frames = traj.shape[0]
 
@@ -101,6 +107,26 @@ def get_particle_numbers_concentrations(config, total=True, skip_frames=0):
                     n_part[k] += np.sum(traj[i] == ptypes[k])
             n_part /= (n_frames-skip_frames)
     return n_part, n_part/n_grid 
+
+def validate_dir_sys_input(sys_argv):
+    dirs_sys = []
+    for kk in range(1, len(sys_argv)):
+        dir_name = os.path.abspath(sys_argv[kk])
+        if os.path.isdir(dir_name):
+            # convert to system path in case configs path is given
+            if os.path.basename(dir_name) == "configs":
+                dir_name = os.path.dirname(dir_name)
+            if not os.path.exists(dir_name):
+                raise ValueError(f"Directory {dir_name} does not exist.")
+            dirs_sys.append(dir_name)
+        else:
+            raise ValueError(f"Directory {dir_name} does not exist.")
+    
+    # check if config directories are unique
+    if len(set(dirs_sys)) != len(dirs_sys):
+        raise ValueError("Config directories must be unique!")
+    
+    return dirs_sys
     
 def list_fnames(dirs_sys, return_dirs=True, return_names=True, sort=True):
     fnames_config_out = []
@@ -174,13 +200,20 @@ def get_theta_WRONG(config, ptype_1, ptype_2, ptype_cplx, return_n=True):
         else:
             return theta
         
-def get_theta(config, ptype_1, ptype_2, ptype_cplx, return_n=True):
+def get_theta(config, ptype_1, ptype_2, ptype_cplx, return_n=True, c_part_rel=None, n_part_rel=None):
     """
     ptype1 binds to ptype2 to form ptype_cplx
     """
-    
-    n_part_rel, c_part_rel = get_particle_numbers_concentrations(config, total=False)
-    
+    if c_part_rel is None and n_part_rel is None:
+        n_part_rel, c_part_rel = get_particle_numbers_concentrations(config, total=False)
+    else: 
+        init_pos = np.array(config["initial_positions"])
+        n_grid = init_pos.shape[0] * init_pos.shape[1]
+        if n_part_rel is None:
+            n_part_rel = c_part_rel * n_grid
+        if c_part_rel is None:
+            c_part_rel = n_part_rel / n_grid
+        
     theta = (c_part_rel[ptype_cplx])/(c_part_rel[ptype_1]+c_part_rel[ptype_cplx])
     
     n_1 = n_part_rel[ptype_1]
@@ -230,3 +263,34 @@ def get_c_D_scale(move_prob, a_SI, D_SI):
     c_scale_mol_per_liter = 1/(unit_volume * Avogardo_C * m3_to_liters) # scale concentration to mol/liters
     
     return c_scale_mol_per_liter, D_scale_mums
+
+def binomial(n, k):
+    if 0 <= k <= n:
+        a= 1
+        b=1
+        for t in range(1, min(k, n - k) + 1):
+            a *= n
+            b *= t
+            n -= 1
+        return a // b
+    else:
+        return 0
+
+def free_volume_correction_exponential(c, D_theory, gamma=3.3124219330860156, d=2.1411403308904657): 
+    # c... absolute concentration of excluded volume particles
+    return D_theory*np.exp(-gamma*c/(d-c))
+
+
+def bond_diffusivity_correction(c_A, c_B, c_AB, c_A_0, c_free, D_A_free, K_AB):
+    K_sqrt = np.sqrt(K_AB)
+    p_bond = 0
+    p_unbond = 0
+
+    for k in range(1, 5):
+        p_bond   += k * D_A_free * K_sqrt * binomial(4, k) * c_B**k  * (1 -  c_B)**(4-k)
+        p_unbond += k * D_A_free / K_sqrt * binomial(4, k) * c_free**k * (1 - c_free)**(4-k)
+
+    # D_corr =  c_Chem/(c_Chem+c_Cplx)/30 * p_bond * D_free * K + c_Cplx/(c_Chem+c_Cplx)/30 * p_unbond * D_free / K
+    D_corr =  c_A/c_A_0 * p_bond * D_A_free * K_sqrt + c_AB/c_A_0 * p_unbond * D_A_free / K_sqrt
+    
+    return D_corr 

@@ -320,17 +320,23 @@ def animate(trajectory:                    np.ndarray,
         print(f'animation saved at {fname}.')
 
 def animate_ffmpeg_from_config(
-    config:           dict,
-    stride:           int         = 1,
-    frame_range:      tuple       = None,
-    particle_names:   list        = None,
-    fname:            str         = None,
-    fps_in:           int         = 15,
-    fps_out:          int         = 30,
-    marker_scale:     float       = 1.0,
-    plot_edge:        int         = 5,
-    show_collagen:    bool        = True,
-    delete_frames:    bool        = True):
+        config:               dict,
+        stride:               int   = 1,
+        frame_range:          tuple = None,
+        particle_names:       list  = None,
+        fname:                str   = None,
+        fps_in:               int   = 15,
+        fps_out:              int   = 30,
+        marker_scale:         float = 1.0,
+        plot_edge:            int   = 5,
+        show_collagen:        bool  = True,
+        colors:               list  = None,
+        markers:              list  = None,
+        fname_collagen_image: str   = None,
+        delete_frames:        bool  = True,
+        a_scale:              float = 1.0,
+        axis_labels:          list  = None,
+    ):
 
 
     fname_traj =  get_fname(config["dir_sys"], config["name_sys"], ftype="trajectory")
@@ -338,47 +344,69 @@ def animate_ffmpeg_from_config(
     if particle_names is None:
         if "particle_names" in config.keys():
             particle_names = config["particle_names"]
+    
     if fname is None:
         fname = get_fname(config["dir_sys"], config["name_sys"], ftype="animation")
     
     with h5py.File(fname_traj, "r") as f:
         # useful because if f["trajectory"] is not indexed, it is not loaded into memory
-        #! Todo: redo this by passing frame range and stride into png generator!! 
-        if frame_range is not None:
-            if stride !=1:
-                traj = f["trajectory"][frame_range[0]:frame_range[1]:stride]
-            else:
-                traj = f["trajectory"][frame_range[0]:frame_range[1]]
-        elif stride != 1:
-            traj = f["trajectory"][::stride]
-        else:
-            traj = f["trajectory"]
-        animate_ffmpeg(traj, particle_names=particle_names, fname=fname, fps_in=fps_in, fps_out=fps_out, marker_scale=marker_scale, plot_edge=plot_edge,show_collagen=show_collagen, delete_frames=delete_frames)
+        animate_ffmpeg(
+            f["trajectory"],
+            stride=stride,
+            frame_range=frame_range, 
+            particle_names=particle_names, 
+            fname=fname, 
+            fps_in=fps_in, 
+            fps_out=fps_out, 
+            marker_scale=marker_scale, 
+            plot_edge=plot_edge,
+            show_collagen=show_collagen,
+            colors=colors,
+            markers=markers,
+            fname_collagen_image=fname_collagen_image, 
+            delete_frames=delete_frames,
+            a_scale=a_scale,
+            axis_labels=axis_labels,
+        )
 
 
 def animate_ffmpeg(
-    trajectory,
-    particle_names:   list        = None,
-    fname:            str         = None,
-    fps_in:           int         = 15,
-    fps_out:          int         = 30,
-    marker_scale:     float       = 1.0,
-    plot_edge:        int         = 5,
-    show_collagen:    bool        = True,
-    delete_frames:    bool        = True):
+        trajectory,
+        stride:               int   = 1,
+        frame_range:          tuple = None,
+        particle_names:       list  = None,
+        fname:                str   = None,
+        fps_in:               int   = 15,
+        fps_out:              int   = 30,
+        marker_scale:         float = 1.0,
+        plot_edge:            int   = 5,
+        colors:               list  = None,
+        markers:              list  = None,
+        show_collagen:        bool  = True,
+        fname_collagen_image: str   = None,
+        delete_frames:        bool  = True,
+        a_scale:              float = 1.0,
+        axis_labels:          list  = None
+    ):
     
-    n_frames = trajectory.shape[0]
-
     if not fname.endswith(".mp4"):
         raise ValueError("Filename must end with .mp4")
+    
+    if frame_range is None:
+        frame_start = 0
+        frame_end = trajectory.shape[0]
+    else:
+        frame_start = frame_range[0]
+        frame_end = frame_range[1]
+    
     
     print(f"Creating animation at {fname} ...")
     
     print("Saving individual frames ...")
     # save individual frames
     #n_digits = int(np.ceil(np.log10(n_frames)))
-    for i in range(n_frames):
-        fname_frame = fname.replace(".mp4", "_frame") + str(i) + ".png" #f"{i:0{n_digits}d}.png"
+    for k, i in enumerate(range(frame_start, frame_end, stride)):
+        fname_frame = fname.replace(".mp4", "_frame") + str(k) + ".png" #f"{i:0{n_digits}d}.png"
         plot_grid(
             trajectory[i], 
             show=False, 
@@ -387,32 +415,53 @@ def animate_ffmpeg(
             fname=fname_frame, 
             particle_names=particle_names, 
             plot_edge=plot_edge, 
-            marker_scale=marker_scale
+            marker_scale=marker_scale,
+            colors=colors,
+            markers=markers,
+            fname_collagen_image=fname_collagen_image,
+            a_scale=a_scale,
+            axis_labels=axis_labels,
         )
     
     print("Converting frames to video ...")
     # convert to video
     # ffmpeg -framerate 1 -i frame%d.png -c:v libx264 -r 30 output.mp4
-    ffmpeg.input(fname.replace(".mp4", "_frame") + "%d.png", framerate=fps_in).output(fname, framerate=fps_out, loglevel="warning").run()
+    # ffmpeg.input(fname.replace(".mp4", "_frame") + "%d.png", framerate=fps_in).output(fname, framerate=fps_out, loglevel="warning").run()
+    # ffmpeg.input(fname.replace(".mp4", "_frame") + "%d.png", framerate=fps_in).output(fname, {"codec:v": "libx264"}, framerate=fps_out, loglevel="warning").run()
+    ffmpeg.input(
+        fname.replace(".mp4", "_frame") + "%d.png", 
+        framerate=fps_in
+    ).output(
+        fname, 
+        vcodec="libx264", 
+        pix_fmt="yuv420p",
+        framerate=fps_out, 
+        loglevel="warning"
+    ).run()
 
     if delete_frames:
         print("Deleting individual frames ...")
         # delete frames
-        for i in range(n_frames):
-            os.remove(fname.replace(".mp4", "_frame") + str(i) + ".png")
+        for k, i in enumerate(range(frame_start, frame_end, stride)):
+            os.remove(fname.replace(".mp4", "_frame") + str(k) + ".png")
         
     print("Done.")
     
 def plot_grid(
     positions,
-    particle_names: list  = None,
-    show:           bool  = True,
-    save:           bool  = True,
-    fname:          str   = None,
-    show_collagen:  bool  = True,
-    fname_collagen_image: str = "images/collagen_fiber_long.png",
-    marker_scale:   float = 1.0,
-    plot_edge:      float = 4.0):
+    particle_names:       list  = None,
+    show:                 bool  = True,
+    save:                 bool  = True,
+    fname:                str   = None,
+    show_collagen:        bool  = True,
+    fname_collagen_image: str   = None,
+    marker_scale:         float = 1.0,
+    plot_edge:            float = 4.0,
+    colors:               list  = None,
+    markers:              list  = None,
+    marker_sizes:         list  = None,
+    a_scale:              float = 1.0,
+    axis_labels:          list  = None):
     """
     Plots the positions of the particles in the grid. Saves plot as png file if specified.
     
@@ -430,44 +479,97 @@ def plot_grid(
     """
     
     # import background image of collagen fiber
+    
     if show_collagen:
+        
+        if fname_collagen_image is None:
+            fname_collagen_image = "/home/janmak98/chemokine/chemokine/images/collagen_fiber_long.png"
+        
         img = plt.imread(fname_collagen_image)
     
-    if particle_names==None:
+    if particle_names is None:
         particle_names =[
             "empty site",
             "CCL5",
             "Net-1",
             "Heperansulfate",
+            "Collagen Site",
             "CCL5-Net-1",
             "CCL5-Heperansulfate",
-            "Collagen Site",
-            "CCL5-Net-1-Collagen",
+            "Net-1-Heparansulfate",
             "Net-1-Collagen"
+            "CCL5-Net-1-Collagen",
         ]
     
-    grid_size = positions.shape
-        
+    n_ptypes = len(particle_names) - 1 # exclude empty site
+    
+    if colors is None:
+        colors = [
+            "#00982C", # chemokine
+            "#F80808", # netrin
+            "#8CD9F4", # heparansulfate
+            "none",    # collagen site
+            "#FF7532", # chemokine-netrin
+            "#358A9F", # chemokine-heparansulfate
+            "#358A9F", # netrin-heparansulfate
+            "purple",  # netrin-collagen
+            "purple",  # chemokine-netrin-collagen
+        ]
+    
+        if len(colors) < n_ptypes:
+            colors += ["k"]*(n_ptypes-5)
+    
+    if markers is None:
+        markers = [
+            "o",          # chemokine
+            r"--$\cdot$", # netrin
+            r"$\sim$",    # heparansulfate
+            ".",          # collagen site
+            "o",          # chemokine-netrin
+            "o",          # chemokine-heparansulfate
+            r"--$\cdot$", # netrin-heparansulfate
+            r"--$\cdot$", # netrin-collagen
+            "o",          # chemokine-netrin-collagen
+        ]
+        if len(markers) < n_ptypes:
+            markers += ["o"]*(n_ptypes-8)
+            
+    if marker_sizes is None:
+        marker_sizes = [
+            80, 
+            250, 
+            150, 
+            90, 
+            80,
+            90,
+            250,
+            250,
+            80]
+        if len(marker_sizes) < n_ptypes:
+            marker_sizes += [90]*(n_ptypes-5)
+    
+    grid_size = np.array(positions.shape)*a_scale
+     
     fig, ax = plt.subplots()
     fig.set_figwidth(grid_size[0]/max(grid_size)*20)
     fig.set_figheight(grid_size[1]/max(grid_size)*20)
 
+    
+    
     box = ax.get_position()
 
     ax.clear()
 
     if show_collagen:
         ax.imshow(img, extent=[0, grid_size[0], 0, grid_size[1]])
-
-    ax.scatter(*np.where(positions == 1), label=particle_names[1], color="#00A200",                      s=80*marker_scale)
-    ax.scatter(*np.where(positions == 2), label=particle_names[2], color="#FF0000", marker=r"--$\cdot$", s=250*marker_scale)
-    ax.scatter(*np.where(positions == 3), label=particle_names[3], color="grey",    marker=r"$\sim$",    s=150*marker_scale)
-    ax.scatter(*np.where(positions == 4), label=particle_names[4], color="#FF00FF",                      s=90*marker_scale)
-    ax.scatter(*np.where(positions == 5), label=particle_names[5], color="purple",  marker="+",          s=80*marker_scale)
-    ax.scatter(*np.where(positions == 6), label=particle_names[6], color="k",       marker="x",          s=90*marker_scale)
-    ax.scatter(*np.where(positions == 7), label=particle_names[7], color="k",       marker="o",          s=90*marker_scale)
-    ax.scatter(*np.where(positions == 8), label=particle_names[8], color="k",       marker="*",          s=90*marker_scale)
-
+    
+    for i in range(1, n_ptypes+1):
+        x, y = np.where(positions == i)
+        if False:#i == 4:
+            ax.scatter(x*a_scale, y*a_scale, color=colors[i-1], marker=markers[i-1], s=marker_sizes[i-1]*marker_scale)
+        else:
+            ax.scatter(x*a_scale, y*a_scale, label=particle_names[i], color=colors[i-1], marker=markers[i-1], s=marker_sizes[i-1]*marker_scale)
+    
     ax.set_xlim(-plot_edge, grid_size[0]+plot_edge)    
     ax.set_ylim(-plot_edge, grid_size[1]+plot_edge)
 
@@ -477,6 +579,10 @@ def plot_grid(
     ax.plot([0, 0], [grid_size[1], 0],                             color="black")
 
 
+    if axis_labels is not None:
+        ax.set_xlabel(axis_labels[0])
+        ax.set_ylabel(axis_labels[1])
+    
     # draw legend outside of the plot
 
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
@@ -485,15 +591,27 @@ def plot_grid(
     #draw frame
     if show:
         plt.show()
+        
     if save:
         if fname is None:
             now = datetime.now().strftime("%Y-%m-%d_%Hh-%Mm-%Ss")
             fname = os.path.join(os.getcwd(), 'plots', 'plot_'+now+'.png')
-        plt.savefig(fname)
+        fig.savefig(fname, bbox_inches='tight')
         #print(f'plot saved at {fname}.')
+        
+    fig.clf()
     plt.close()
         
 
+def load_config(fname: str):
+    """
+    loads config from filetype, depending on file handle
+    """
+
+    file_suffix = fname.split(".")[-1]
+    if file_suffix == "toml":
+        return load_config_dict(fname)
+    
 def load_config_dict(fname: str):
     """
     Returns the simulation config as dictionary from a toml file.
@@ -555,12 +673,28 @@ def load_config_dict(fname: str):
     with open(fname, 'r') as f:
         config_dict = toml.load(f)
     
-    config_dict['initial_positions']  = np.array(config_dict['initial_positions'], dtype=np.int8)
-    config_dict["binding_energy"]     = np.array(config_dict["binding_energy"], dtype=np.float64)
-    config_dict["diffusivities"]      = np.array(config_dict["diffusivities"], dtype=np.float64)
-    config_dict["track_types"]        = np.array(config_dict["track_types"], dtype=bool)
+    # convert dict entries to appropriate data types
+    config_dict['initial_positions']         = np.array(config_dict['initial_positions'], dtype=np.int8)
+    config_dict["binding_energy"]            = np.array(config_dict["binding_energy"], dtype=np.float64)
+    config_dict["diffusivities"]             = np.array(config_dict["diffusivities"], dtype=np.float64)
+    config_dict["track_types"]               = np.array(config_dict["track_types"], dtype=bool)
     config_dict["interaction_probabilities"] = np.array(config_dict["interaction_probabilities"], dtype=np.float64)
+    config_dict["reflection"]                = np.array(config_dict["reflection"], dtype=bool)
     
+    # set default values and take care of backwards compatability
+    if not "add_particles_per_step" in config_dict.keys():
+        n = len(config_dict["diffusivities"])
+        config_dict["add_particles_per_step"] = np.zeros(n, dtype=float)
+    else:
+        config_dict["add_particles_per_step"] = np.array(config_dict["add_particles_per_step"], dtype=float)
+    
+    if not "region_fraction_add_particles" in config_dict.keys():
+        n = len(config_dict["diffusivities"])
+        add = np.zeros((n, 2, 2), dtype=float)
+        add[:, :, 1] = 1
+        config_dict["region_fraction_add_particles"] = add 
+    else:
+        config_dict["region_fraction_add_particles"] = np.array(config_dict["region_fraction_add_particles"], dtype=float)
     
     return config_dict
 
@@ -832,6 +966,9 @@ def validate_name_sys(dir_sys: str, name_sys: str, overwrite_sys: bool = False):
     
     return name_sys
 
+def get_fname_from_config(config, ftype="trajectory"):
+    return get_fname(config["dir_sys"], config["name_sys"], ftype)
+
 def get_fname(dir_sys, name_sys, ftype="trajectory", name=None):
     """
     filetypes:
@@ -864,7 +1001,7 @@ def get_fname(dir_sys, name_sys, ftype="trajectory", name=None):
     return fname
 
 @njit
-def get_traj_xy(traj, n_particles: int):
+def get_traj_xy(traj, n_particles: int = None):
     """
     Calculates a trajectory of shape (n_particles, n_frames, 2) from a trajectory of shape (n_frames, n_x, n_y), 
     where the last dimension is the x and y index (=position) of the particle in the frame.
@@ -881,13 +1018,14 @@ def get_traj_xy(traj, n_particles: int):
     l_xy = np.array([n_x, n_y])
     
     # Infer number of particles
-    n_particles = int(np.max(traj[0]))
+    if n_particles is None:
+        n_particles = int(np.max(traj[0]))
     
     # Preallocate output
-    traj_xy = np.zeros((n_particles, n_frames, 2), dtype=np.int64)
+    traj_xy = np.zeros((n_particles, n_frames, 2))
     
     # Precompute positions for all frames
-    particle_positions = np.zeros((n_frames, n_particles, 2), dtype=np.int64)
+    particle_positions = np.zeros((n_frames, n_particles, 2))
     for frame_idx in range(n_frames):
         for particle_index in range(1, n_particles + 1):
             position = np.argwhere(traj[frame_idx] == particle_index)
