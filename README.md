@@ -41,7 +41,7 @@ Loop over all grid sites:
 
 In this way the system is evolved in time for the desired amount of steps.
 
-For more information on the implementation of the simulation see ```resources/model_description.pdf```.
+For more information on the implementation of the simulation see ```resources/model_description/model_description.pdf```.
 
 # Tutorial
 
