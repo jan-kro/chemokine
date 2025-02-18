@@ -1,0 +1,3 @@
+## Notes on Parallel Computing
+
+We use the term 'parallel computing' in a loose sense here. With parallel computing we mean running multiple simulations/calculations at once using the ```joblib``` package. Every simulation is still run on a single core, but in the running scripts we can specify the number of cores to use with the ```NUM_JOBS``` variable. We give the directories of the config files for all systems to run/analyze as an input in the command line, and all systems will be simulated that lie in these directories.
