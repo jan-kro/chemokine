@@ -13,6 +13,7 @@ matplotlib = "3.7.2"
 numpy = "1.24.3" 
 ffmpeg-python = "0.2.0" 
 h5py = "3.9.0"
+rust_chemokine = { git = "https://github.com/jan-kro/chemokine-rust.git"}
 
 
 [build-system]
