@@ -1,1 +1,0 @@
-python3 -m build && pip install dist/chemokine-0.3.0.tar.gz
